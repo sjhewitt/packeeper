@@ -1,0 +1,89 @@
+{% if is_csv %}
+<div class="panel">
+  <h2>Columns</h2>
+  <p class="muted small">The app guessed these. Change any that are wrong; the preview below updates. The choices are saved for this account.</p>
+  <div class="fields">
+    <div class="field"><label>Date column</label>{{ self.col_select("date_col", mapping.date_col)|safe }}</div>
+    <div class="field"><label>Date format</label>
+      <select name="date_format">
+        {% for (f, example) in date_formats %}<option value="{{ f }}" {% if mapping.date_format == *f %}selected{% endif %}>{{ example }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label>Amounts</label>
+      <label class="check"><input type="radio" name="amount_mode" value="single" {% if !mapping.split_amounts() %}checked{% endif %}> One column, money out is negative</label>
+      <label class="check"><input type="radio" name="amount_mode" value="split" {% if mapping.split_amounts() %}checked{% endif %}> Separate withdrawal and deposit columns</label>
+    </div>
+  </div>
+  <div class="fields">
+    {% if mapping.split_amounts() %}
+    <div class="field"><label>Withdrawals (money out)</label>{{ self.col_select("debit_col", mapping.debit_col)|safe }}</div>
+    <div class="field"><label>Deposits (money in)</label>{{ self.col_select("credit_col", mapping.credit_col)|safe }}</div>
+    {% else %}
+    <div class="field"><label>Amount column</label>{{ self.col_select("amount_col", mapping.amount_col)|safe }}
+      <label class="check small"><input type="checkbox" name="invert_amount" {% if mapping.invert_amount %}checked{% endif %}> Flip the sign (the bank shows money out as positive)</label></div>
+    {% endif %}
+    <div class="field"><label>Running balance</label>{{ self.col_select("balance_col", mapping.balance_col)|safe }}</div>
+    <div class="field"><label>Cheque / reference</label>{{ self.col_select("reference_col", mapping.reference_col)|safe }}</div>
+  </div>
+  <div class="field"><label>Description (one or more columns)</label>
+    <div style="display:flex; flex-wrap: wrap; gap: 4px 16px;">
+      {% for c in columns %}<label class="check"><input type="checkbox" name="description_cols" value="{{ loop.index0 }}" {% if mapping.has_description(loop.index0) %}checked{% endif %}> {{ c }}</label>{% endfor %}
+    </div>
+  </div>
+  <div class="fields">
+    <div class="field"><label class="check"><input type="checkbox" name="has_header" {% if mapping.has_header %}checked{% endif %}> The first row is column names</label></div>
+    <div class="field"><label>Lines to skip at the top</label><input type="number" name="skip_rows" min="0" value="{{ mapping.skip_rows }}" style="max-width: 90px;"></div>
+  </div>
+
+  {% if !raw.is_empty() %}
+  <h3>First rows of the file</h3>
+  <div style="overflow-x: auto;">
+  <table class="small">
+    <thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in raw %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="page-head" style="margin-bottom: 8px;">
+    <div>
+      <h2 style="margin: 0;">Preview</h2>
+      <p class="small muted" style="margin: 4px 0 0;">
+        <span class="status-new">{{ new }} new</span> ·
+        <span class="status-match">{{ matched }} match entries made by hand</span> ·
+        <span class="status-dup">{{ duplicate }} already imported</span>
+        {% if before_opening > 0 %} · <span class="status-dup">{{ before_opening }} before the opening balance date</span>{% endif %}
+        · in {{ total_in }} · out {{ total_out.abs() }}
+      </p>
+    </div>
+    <div class="actions">
+      <button type="submit" {% if rows.is_empty() %}disabled{% endif %}>Import {{ new + matched }} transaction(s)</button>
+    </div>
+  </div>
+  {% for h in hints %}<div class="flash err small">{{ h }}</div>{% endfor %}
+  {% for n in notes %}<p class="small muted">{{ n }}</p>{% endfor %}
+  {% if !errors.is_empty() %}
+  <div class="flash err small">{{ errors.len() }} row(s) could not be read and will be skipped.
+    {% for e in errors %}{% if loop.index <= 5 %}<br>Line {{ e.line }}: {{ e.message }}{% endif %}{% endfor %}
+  </div>
+  {% endif %}
+  <table>
+    <thead><tr><th>Date</th><th>Description</th><th>Ref</th><th class="num">Amount</th><th class="num">Balance</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for (row, status) in rows %}
+      <tr>
+        <td class="nowrap">{{ row.date }}</td>
+        <td class="desc">{{ row.description }}</td>
+        <td>{{ row.reference }}</td>
+        <td class="num {% if row.amount_cents < 0 %}neg{% endif %}">{{ row.amount() }}</td>
+        <td class="num">{% if let Some(b) = row.balance() %}{{ b }}{% endif %}</td>
+        <td class="status-{{ status.css() }}">{{ status.label() }}</td>
+      </tr>
+    {% endfor %}
+    {% if rows.is_empty() %}<tr><td colspan="6" class="muted">No rows could be read with these column choices.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>

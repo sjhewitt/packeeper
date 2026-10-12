@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Gaming grant</h1>
+    <p class="sub">Gaming Account Summary Report for the year ending {{ g.fy.end_date.format("%B %-d, %Y") }} · due by {{ g.due_date.format("%B %-d, %Y") }}</p>
+  </div>
+  <div class="actions">
+    <form method="get" action="/gaming">
+      <select name="fy" onchange="this.form.submit()" aria-label="Fiscal year">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == g.fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </form>
+    <a class="button" href="/reports/gaming.pdf?fy={{ g.fy.id }}" target="_blank">Worksheet PDF</a>
+  </div>
+</div>
+
+{% if !has_gaming %}
+<div class="panel"><p>There is no gaming account yet. <a href="/accounts">Add the gaming account</a> with the kind "BC gaming grant".</p></div>
+{% else %}
+
+<div class="panel">
+  <h2>Checks</h2>
+  {% if g.problems() == 0 && g.warnings() == 0 %}<p><span class="tag good">no problems found</span></p>{% endif %}
+  <ul class="check-list">
+    {% for c in g.checks %}
+    <li class="{{ c.level.css() }}">{{ c.message }}{% if let Some(id) = c.tx_id %} <a href="/transactions/{{ id }}">Open</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Summary</h2>
+    <table>
+      <thead><tr><th>Line</th><th>Description</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Opening balance</td><td class="num">{{ g.opening }}</td></tr>
+        <tr><td>3</td><td>PAC gaming grant</td><td class="num">{{ g.grant }}</td></tr>
+        {% if !g.other_income.is_zero() %}<tr class="flagged"><td>5</td><td>Other deposits (not allowed)</td><td class="num neg">{{ g.other_income }}</td></tr>{% endif %}
+        <tr><td>14</td><td>Interest and GST rebates</td><td class="num">{{ g.interest_gst }}</td></tr>
+        <tr class="subtotal"><td>28</td><td>Total available</td><td class="num">{{ g.available }}</td></tr>
+        <tr><td>46</td><td>Disbursements ({{ g.disbursements.len() }})</td><td class="num">{{ g.total_disbursed }}</td></tr>
+        <tr class="total"><td>47</td><td>Closing balance</td><td class="num">{{ g.closing }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Bank balances at year end</h2>
+    <table>
+      <tbody>
+        {% for (a, b) in g.accounts %}<tr><td>{{ a.name }}</td><td class="num">{{ b }}</td></tr>{% endfor %}
+        <tr class="total"><td>Total (line 52)</td><td class="num">{{ g.accounts_total }}</td></tr>
+      </tbody>
+    </table>
+    {% if !g.grants.is_empty() %}
+    <h3>Spending deadlines</h3>
+    <table class="small">
+      <thead><tr><th>Received</th><th class="num">Amount</th><th>Spend by</th><th class="num">Unspent</th></tr></thead>
+      <tbody>{% for r in g.grants %}<tr><td>{{ r.received }}</td><td class="num">{{ r.amount }}</td><td>{{ r.spend_by }}</td><td class="num">{{ r.unspent }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Disbursements</h2></div>
+  <table>
+    <thead><tr><th>Date</th><th>Ref #</th><th>Disbursed to</th><th>Purpose</th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody>
+    {% for d in g.disbursements %}
+      <tr {% if (d.receipt_required && !d.has_receipt && d.reimbursements.is_empty()) || d.tx.purpose.is_empty() %}class="flagged"{% endif %}>
+        <td class="nowrap">{{ d.tx.date.format("%d-%m-%Y") }}</td>
+        <td>{{ d.reference }}</td>
+        <td><a href="/transactions/{{ d.tx.id }}">{{ d.disbursed_to }}</a></td>
+        <td>{% if d.tx.purpose.is_empty() %}<span class="muted">{{ d.purpose }}</span> <span class="tag warn">add purpose</span>{% else %}{{ d.purpose }}<br><span class="small muted">{{ d.line_names }}</span>{% endif %}
+          {% if !d.reimbursements.is_empty() %}<br><span class="small muted">Repays {{ d.reimbursements.len() }} general-account expense(s): {{ d.reimbursement_total() }}</span>{% endif %}</td>
+        <td class="num">{{ d.amount }}</td>
+        <td>{% if d.has_receipt %}<span class="tag good">rcpt</span>{% else if d.receipt_required && d.reimbursements.is_empty() %}<span class="tag bad">no rcpt</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if g.disbursements.is_empty() %}<tr><td colspan="6" class="muted">No disbursements in this fiscal year.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<details class="panel help">
+  <summary>What gaming funds can and cannot pay for (PAC rules, 2026)</summary>
+  <div class="grid two" style="margin-top: 10px;">
+    <div>
+      <h3>Eligible (examples)</h3>
+      <ul>
+        <li>Field trips within BC</li><li>Presentations and performances</li><li>School spirit and family events (no fundraising)</li>
+        <li>Leisure items for non-instructional time</li><li>Beautification of common spaces</li><li>Yearbooks and newsletters</li>
+        <li>Student competitions and clubs</li><li>Graduation and dry grad</li><li>Team uniforms and sports equipment</li>
+        <li>Playground equipment</li><li>Sports day costs</li><li>Student recognition</li><li>Student conferences in BC</li>
+        <li>BCCPAC membership and conference travel</li><li>Emergency supplies the school does not provide</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Not eligible</h3>
+      <ul>
+        <li>Curricular materials and classroom items (textbooks, tablets, Chromebooks)</li><li>Fundraising costs, including concessions</li>
+        <li>Out-of-province travel without approval</li><li>Scholarships and bursaries</li><li>Repairs the district is responsible for</li>
+        <li>Items the district is responsible for (AV, PPE)</li><li>Goods or services for parents</li>
+        <li>PAC admin costs (office supplies, accounting, insurance)</li><li>Staff costs (luncheons, wages, professional development)</li>
+        <li>Cash prizes and gift cards</li><li>Past debts, loans, or interest</li><li>Covering a deficit in the general account</li><li>Donations to other groups</li>
+      </ul>
+    </div>
+  </div>
+  <p class="small muted">Other rules: no other money may be deposited into the gaming account; no cash withdrawals; cheques need two unrelated signers; e-transfers need written approval from two executive members with the purpose and maximum amount; money moves to the general account only to repay eligible expenses from the same fiscal year, with a reimbursement summary. Check the current <a href="https://www2.gov.bc.ca/assets/gov/sports-recreation-arts-and-culture/gambling/grants/guide-pac.pdf" target="_blank" rel="noopener">PAC guidelines</a> and <a href="https://www2.gov.bc.ca/assets/gov/sports-recreation-arts-and-culture/gambling/grants/cond-pac.pdf" target="_blank" rel="noopener">conditions</a>.</p>
+</details>
+{% endif %}
+{% endblock %}

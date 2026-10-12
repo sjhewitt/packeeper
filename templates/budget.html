@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Budget {{ fy.label }}</h1>
+    <p class="sub">{{ fy.period() }} ·
+      {% if fy.budget_status == "approved" %}<span class="tag good">approved{% if let Some(d) = fy.budget_approved_on %} {{ d.format("%b %-d, %Y") }}{% endif %}</span>
+      {% else if fy.budget_status == "proposed" %}<span class="tag warn">proposed</span>
+      {% else %}<span class="tag muted">draft</span>{% endif %}
+    </p>
+  </div>
+  <div class="actions">
+    <form method="get" action="/budget">
+      <select name="fy" onchange="this.form.submit()" aria-label="Fiscal year">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </form>
+    <a class="button secondary" href="/budget/proposal?base={{ fy.id }}">Plan the next year's budget</a>
+    <a class="button secondary" href="/reports/annual.pdf?fy={{ fy.id }}">Annual report PDF</a>
+  </div>
+</div>
+
+<form method="post" action="/budget/{{ fy.id }}/amounts">
+{% for f in funds %}
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">{{ f.title() }}</h2></div>
+  <table>
+    <thead><tr><th>Line item</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Remaining</th><th style="width: 12%"></th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr class="section"><td colspan="6">Income</td></tr>
+      {% for r in f.income %}
+      <tr>
+        <td>{% if let Some(id) = r.line_item_id %}<a href="/transactions?line={{ id }}&fy={{ fy.id }}">{{ r.name }}</a>{% else %}<a href="/transactions?uncategorized=1&fy={{ fy.id }}" class="neg">{{ r.name }}</a>{% endif %}</td>
+        <td class="num">{% if let Some(id) = r.line_item_id %}{% if layout.can_edit %}<input type="hidden" name="line_item_id" value="{{ id }}"><input class="amount" type="text" name="amount" value="{{ r.budget.input() }}" placeholder="0.00">{% else %}{{ r.budget }}{% endif %}{% endif %}</td>
+        <td class="num">{{ r.ytd }}</td>
+        <td class="num">{% if r.line_item_id.is_some() %}{{ r.remaining() }}{% endif %}</td>
+        <td><div class="bar"><span style="width: {{ r.percent().min(100) }}%"></span></div></td>
+        <td>{% if r.line_item_id.is_some() %}{% if layout.can_edit %}<input type="text" name="notes" value="{{ self.note(r.line_item_id) }}">{% else %}{{ self.note(r.line_item_id) }}{% endif %}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr class="subtotal"><td>Total income</td><td class="num">{{ f.income_budget() }}</td><td class="num">{{ f.income_ytd() }}</td><td class="num">{{ f.income_budget() - f.income_ytd() }}</td><td></td><td></td></tr>
+      <tr class="section"><td colspan="6">Expenses</td></tr>
+      {% for r in f.expense %}
+      <tr>
+        <td>{% if let Some(id) = r.line_item_id %}<a href="/transactions?line={{ id }}&fy={{ fy.id }}">{{ r.name }}</a>{% else %}<a href="/transactions?uncategorized=1&fy={{ fy.id }}" class="neg">{{ r.name }}</a>{% endif %}</td>
+        <td class="num">{% if let Some(id) = r.line_item_id %}{% if layout.can_edit %}<input type="hidden" name="line_item_id" value="{{ id }}"><input class="amount" type="text" name="amount" value="{{ r.budget.input() }}" placeholder="0.00">{% else %}{{ r.budget }}{% endif %}{% endif %}</td>
+        <td class="num">{{ r.ytd }}</td>
+        <td class="num {% if r.remaining().is_negative() %}neg{% endif %}">{% if r.line_item_id.is_some() %}{{ r.remaining() }}{% endif %}</td>
+        <td><div class="bar {% if r.percent() > 100 %}over{% endif %}"><span style="width: {{ r.percent().min(100) }}%"></span></div></td>
+        <td>{% if r.line_item_id.is_some() %}{% if layout.can_edit %}<input type="text" name="notes" value="{{ self.note(r.line_item_id) }}">{% else %}{{ self.note(r.line_item_id) }}{% endif %}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr class="subtotal"><td>Total expenses</td><td class="num">{{ f.expense_budget() }}</td><td class="num">{{ f.expense_ytd() }}</td><td class="num">{{ f.expense_budget() - f.expense_ytd() }}</td><td></td><td></td></tr>
+      <tr class="total"><td>Net (income less expenses)</td><td class="num">{{ f.net_budget() }}</td><td class="num">{{ f.net_ytd() }}</td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  <p class="small muted" style="padding: 0 18px 12px;">Balance: {{ f.year_opening }} at the start of the year{% if !f.year_opened.is_zero() %}, plus {{ f.year_opened }} in accounts opened during the year{% endif %}; {{ f.closing }} at the end of the year or today.{% if !f.transfers_ytd.is_zero() %} Transfers between accounts: {{ f.transfers_ytd }}.{% endif %}</p>
+</div>
+{% endfor %}
+{% if layout.can_edit %}<p><button>Save budget</button> <span class="muted small">Line items are managed on the <a href="/line-items">line items page</a>.</span></p>{% endif %}
+</form>
+
+<div class="panel">
+  <h2>Fiscal year</h2>
+  <form method="post" action="/budget/{{ fy.id }}/year">
+    <div class="fields">
+      <div class="field"><label for="label">Name</label><input type="text" id="label" name="label" value="{{ fy.label }}"></div>
+      <div class="field"><label for="start_date">Starts</label><input type="date" id="start_date" name="start_date" value="{{ fy.start_date }}"></div>
+      <div class="field"><label for="end_date">Ends</label><input type="date" id="end_date" name="end_date" value="{{ fy.end_date }}"></div>
+      <div class="field"><label for="budget_status">Budget status</label>
+        <select id="budget_status" name="budget_status">
+          <option value="draft" {% if fy.budget_status == "draft" %}selected{% endif %}>Draft</option>
+          <option value="proposed" {% if fy.budget_status == "proposed" %}selected{% endif %}>Proposed</option>
+          <option value="approved" {% if fy.budget_status == "approved" %}selected{% endif %}>Approved</option>
+        </select>
+      </div>
+      <div class="field"><label for="budget_approved_on">Approved on</label><input type="date" id="budget_approved_on" name="budget_approved_on" value="{% if let Some(d) = fy.budget_approved_on %}{{ d }}{% endif %}"></div>
+    </div>
+    <div class="field"><label for="notes">Treasurer's notes</label><textarea id="notes" name="notes" placeholder="Printed in the annual report for the AGM">{{ fy.notes }}</textarea></div>
+    {% if layout.can_edit %}<button class="secondary">Save fiscal year</button>{% endif %}
+  </form>
+</div>
+{% endblock %}

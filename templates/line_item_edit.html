@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/line-items">Line items</a> ›</p>
+    <h1>{{ li.name }}</h1>
+    <p class="sub">{% if li.fund == "gaming" %}Gaming grant fund{% else %}General fund{% endif %} · used by {{ used }} transaction(s)</p>
+  </div>
+</div>
+<form class="panel" method="post" action="/line-items/{{ li.id }}" style="max-width: 760px;">
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" value="{{ li.name }}" required></div>
+    <div class="field"><label for="kind">Kind</label>
+      <select id="kind" name="kind" {% if used > 0 %}disabled{% endif %}>
+        <option value="expense" {% if li.kind == "expense" %}selected{% endif %}>Expense</option>
+        <option value="income" {% if li.kind == "income" %}selected{% endif %}>Income</option>
+        <option value="transfer" {% if li.kind == "transfer" %}selected{% endif %}>Transfer between accounts</option>
+      </select>
+      {% if used > 0 %}<div class="hint">Fixed, because transactions use this line item.</div>{% endif %}
+    </div>
+    <div class="field"><label for="sort_order">Order</label><input type="number" id="sort_order" name="sort_order" value="{{ li.sort_order }}"></div>
+  </div>
+  {% if li.fund == "gaming" && li.kind == "income" %}
+  <div class="field"><label for="gasr_line">Gaming report line</label>
+    <select id="gasr_line" name="gasr_line">
+      <option value="">— (counts as "other", which is not allowed)</option>
+      <option value="3" {% if li.gasr_line.as_deref() == Some("3") %}selected{% endif %}>Line 3: PAC/DPAC grant</option>
+      <option value="14" {% if li.gasr_line.as_deref() == Some("14") %}selected{% endif %}>Line 14: GST rebate, interest, asset sales</option>
+    </select>
+  </div>
+  {% endif %}
+  <div class="field"><label for="description">Description</label><input type="text" id="description" name="description" value="{{ li.description }}"></div>
+  <label class="check"><input type="checkbox" name="active" {% if li.active %}checked{% endif %}> Show in lists (untick to retire a line; history stays)</label>
+  {% if li.kind == "expense" %}<label class="check"><input type="checkbox" name="receipt_required" {% if li.receipt_required %}checked{% endif %}> Payments need a receipt</label>{% endif %}
+  {% if layout.can_edit %}<p><button>Save line item</button></p>{% endif %}
+</form>
+{% endblock %}

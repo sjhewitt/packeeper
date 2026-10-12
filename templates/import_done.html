@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/import">Import</a> ›</p>
+    <h1>Import complete</h1>
+    <p class="sub">{{ batch.filename }} into {{ account.name }} on {{ batch.created_at }}.</p>
+  </div>
+</div>
+<div class="grid cards">
+  <div class="card"><div class="label">Rows in file</div><div class="value">{{ batch.rows_total }}</div></div>
+  <div class="card general"><div class="label">New</div><div class="value">{{ batch.rows_new }}</div></div>
+  <div class="card"><div class="label">Matched to entries made by hand</div><div class="value">{{ batch.rows_matched }}</div></div>
+  <div class="card"><div class="label">Already imported</div><div class="value">{{ batch.rows_duplicate }}</div></div>
+</div>
+<div class="panel">
+  <p>Next: give each new transaction a line item and attach receipts.</p>
+  <p>
+    <a class="button" href="/transactions?uncategorized=1&account={{ account.id }}">Assign line items</a>
+    <a class="button secondary" href="/import">Import another file</a>
+  </p>
+  <form method="post" action="/import/{{ batch.id }}/undo" onsubmit="return confirm('Remove the transactions this import added?')">
+    <p class="small muted">Wrong file or wrong account? <button class="danger small">Undo this import</button></p>
+  </form>
+</div>
+{% endblock %}

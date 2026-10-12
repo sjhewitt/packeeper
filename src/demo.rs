@@ -1,0 +1,624 @@
+//! An example PAC with a year and a half of activity, for trying the app and
+//! for testing the reports. All names are made up.
+
+use chrono::NaiveDate;
+use sha2::{Digest, Sha256};
+use sqlx::SqlitePool;
+
+use crate::db::{self, Settings};
+use crate::fiscal;
+
+fn d(s: &str) -> NaiveDate {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").expect("demo date")
+}
+
+struct Demo<'a> {
+    pool: &'a SqlitePool,
+    receipts_dir: std::path::PathBuf,
+    seq: i64,
+}
+
+#[derive(Default)]
+struct Tx<'a> {
+    payee: &'a str,
+    purpose: &'a str,
+    reference: &'a str,
+    receipt: bool,
+    cleared: Option<bool>,
+}
+
+impl Demo<'_> {
+    async fn line(&self, fund: &str, name: &str) -> anyhow::Result<i64> {
+        sqlx::query_scalar("SELECT id FROM line_items WHERE fund = ? AND name = ?")
+            .bind(fund)
+            .bind(name)
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("line item {fund}/{name}: {e}"))
+    }
+
+    /// Adds a transaction. `lines` is a list of (line item name, amount in dollars).
+    #[allow(clippy::too_many_arguments)]
+    async fn tx(
+        &mut self,
+        account: i64,
+        fund: &str,
+        date: &str,
+        desc: &str,
+        amount: f64,
+        lines: &[(&str, f64)],
+        o: Tx<'_>,
+    ) -> anyhow::Result<i64> {
+        self.seq += 1;
+        let cents = (amount * 100.0).round() as i64;
+        let manual = o.cleared.is_some();
+        let id = sqlx::query(
+            "INSERT INTO transactions (account_id, date, description, payee, amount_cents, reference, purpose, source, bank_ref, cleared, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(account)
+        .bind(d(date))
+        .bind(desc)
+        .bind(o.payee)
+        .bind(cents)
+        .bind(o.reference)
+        .bind(o.purpose)
+        .bind(if manual { "manual" } else { "import" })
+        .bind(if manual { None } else { Some(format!("demo:{}", self.seq)) })
+        .bind(o.cleared.unwrap_or(true))
+        .bind(db::now())
+        .execute(self.pool)
+        .await?
+        .last_insert_rowid();
+        for (name, part) in lines {
+            let li = self.line(fund, name).await?;
+            sqlx::query("INSERT INTO allocations (transaction_id, line_item_id, amount_cents) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(li)
+                .bind((part * 100.0).round() as i64)
+                .execute(self.pool)
+                .await?;
+        }
+        if o.receipt {
+            let label = if o.payee.is_empty() { desc } else { o.payee };
+            let pdf = tiny_pdf(&format!("Receipt - {label} - {date} - ${:.2}", amount.abs()));
+            let stored = format!("{}/{}-demo-receipt.pdf", &date[..4], id);
+            let path = self.receipts_dir.join(&stored);
+            std::fs::create_dir_all(path.parent().expect("parent"))?;
+            std::fs::write(&path, &pdf)?;
+            sqlx::query(
+                "INSERT INTO attachments (transaction_id, filename, stored_name, content_type, size_bytes, sha256, uploaded_at)
+                 VALUES (?, ?, ?, 'application/pdf', ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("receipt-{date}.pdf"))
+            .bind(&stored)
+            .bind(pdf.len() as i64)
+            .bind(hex::encode(Sha256::digest(&pdf)))
+            .bind(db::now())
+            .execute(self.pool)
+            .await?;
+        }
+        Ok(id)
+    }
+
+    async fn budget(&self, fy: i64, fund: &str, amounts: &[(&str, f64)]) -> anyhow::Result<()> {
+        for (name, amount) in amounts {
+            let li = self.line(fund, name).await?;
+            sqlx::query(
+                "INSERT OR REPLACE INTO budget_amounts (fiscal_year_id, line_item_id, amount_cents) VALUES (?, ?, ?)",
+            )
+            .bind(fy)
+            .bind(li)
+            .bind((amount * 100.0).round() as i64)
+            .execute(self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+}
+
+/// A one-page PDF with one line of text.
+fn tiny_pdf(text: &str) -> Vec<u8> {
+    let safe: String = text.chars().filter(|c| c.is_ascii() && !matches!(c, '(' | ')' | '\\')).collect();
+    let stream = format!("BT /F1 14 Tf 40 760 Td ({safe}) Tj ET");
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for off in offsets {
+        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).as_bytes(),
+    );
+    out
+}
+
+pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Result<()> {
+    let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM accounts").fetch_one(pool).await?;
+    if existing > 0 {
+        anyhow::bail!("this data folder already has accounts; use an empty folder for the demo (--data-dir demo-data)");
+    }
+    Settings {
+        pac_name: "Example Elementary PAC".into(),
+        school_name: "Example Elementary School".into(),
+        fy_start_month: 7,
+        enrolment: 412,
+        gaming_rate_cents: 2000,
+        treasurer_name: "Sam Rivera".into(),
+        chair_name: "Jordan Lee".into(),
+        gaming_org_number: "PAC-000000".into(),
+    }
+    .save(pool)
+    .await?;
+
+    let general = sqlx::query(
+        "INSERT INTO accounts (name, kind, account_number, opening_date, opening_balance_cents) VALUES ('General Chequing', 'general', '1234', '2025-07-01', 841237)",
+    )
+    .execute(pool)
+    .await?
+    .last_insert_rowid();
+    let gaming = sqlx::query(
+        "INSERT INTO accounts (name, kind, account_number, opening_date, opening_balance_cents) VALUES ('Gaming Account', 'gaming', '5678', '2025-07-01', 612055)",
+    )
+    .execute(pool)
+    .await?
+    .last_insert_rowid();
+
+    let last = fiscal::ensure(pool, d("2025-07-01")).await?;
+    let this = fiscal::ensure(pool, d("2026-07-01")).await?;
+    sqlx::query("UPDATE fiscal_years SET budget_status = 'approved', budget_approved_on = ?, notes = ? WHERE id = ?")
+        .bind(d("2025-06-11"))
+        .bind("Hot lunch sales were higher than planned, and the spring carnival had record attendance. \
+               The gaming grant paid for two field trips, a science presentation, new sports equipment, and playground balls.")
+        .bind(last.id)
+        .execute(pool)
+        .await?;
+    sqlx::query("UPDATE fiscal_years SET budget_status = 'approved', budget_approved_on = ? WHERE id = ?")
+        .bind(d("2026-06-10"))
+        .bind(this.id)
+        .execute(pool)
+        .await?;
+
+    let mut demo = Demo { pool, receipts_dir: data_dir.join("receipts"), seq: 0 };
+
+    let general_budget: &[(&str, f64)] = &[
+        ("Fundraising – Hot lunch", 9000.0),
+        ("Fundraising – Events", 4000.0),
+        ("Donations", 1500.0),
+        ("Interest", 20.0),
+        ("Hot lunch costs", 6500.0),
+        ("Fundraising event costs", 1500.0),
+        ("Staff appreciation", 1200.0),
+        ("Classroom grants", 3000.0),
+        ("Hospitality and meetings", 400.0),
+        ("Insurance", 450.0),
+        ("Office and supplies", 250.0),
+        ("Bank fees", 60.0),
+    ];
+    let gaming_budget: &[(&str, f64)] = &[
+        ("PAC gaming grant", 8240.0),
+        ("Interest and GST rebates", 30.0),
+        ("Field trips (within BC)", 4000.0),
+        ("Presentations and performances", 2500.0),
+        ("School spirit and family events", 1500.0),
+        ("Clubs and student competitions", 800.0),
+        ("Sports equipment and uniforms", 1500.0),
+        ("Playground and beautification", 2000.0),
+        ("Graduation and student recognition", 600.0),
+        ("BCCPAC membership and conference", 75.0),
+        ("Emergency supplies", 500.0),
+    ];
+    demo.budget(last.id, "general", general_budget).await?;
+    demo.budget(last.id, "gaming", gaming_budget).await?;
+    let this_general: Vec<(&str, f64)> = general_budget
+        .iter()
+        .map(|(n, a)| {
+            (
+                *n,
+                if *n == "Fundraising – Hot lunch" {
+                    10000.0
+                } else if *n == "Hot lunch costs" {
+                    7200.0
+                } else {
+                    *a
+                },
+            )
+        })
+        .collect();
+    demo.budget(this.id, "general", &this_general).await?;
+    demo.budget(this.id, "gaming", gaming_budget).await?;
+
+    let g = general;
+    let fee = |m: &'static str| (m, "SERVICE CHARGE");
+    // Monthly bank fees, both years.
+    for m in [
+        "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04",
+        "2026-05", "2026-06", "2026-07", "2026-08", "2026-09",
+    ] {
+        let (month, desc) = fee(m);
+        demo.tx(g, "general", &format!("{month}-28"), desc, -5.0, &[("Bank fees", -5.0)], Tx::default()).await?;
+    }
+    // Hot lunch, September to June.
+    let lunches = [
+        ("2025-09", 845.50, 610.25),
+        ("2025-10", 1012.00, 702.40),
+        ("2025-11", 968.75, 688.10),
+        ("2025-12", 702.00, 512.35),
+        ("2026-01", 990.25, 701.80),
+        ("2026-02", 921.50, 655.00),
+        ("2026-03", 870.00, 640.15),
+        ("2026-04", 1004.75, 720.90),
+        ("2026-05", 1101.00, 790.45),
+        ("2026-06", 640.50, 455.20),
+        ("2026-09", 1120.00, 760.30),
+    ];
+    for (m, sales, cost) in lunches {
+        demo.tx(
+            g,
+            "general",
+            &format!("{m}-12"),
+            "DEPOSIT MUNCH A LUNCH PAYOUT",
+            sales,
+            &[("Fundraising – Hot lunch", sales)],
+            Tx { payee: "Munch A Lunch", ..Default::default() },
+        )
+        .await?;
+        demo.tx(
+            g,
+            "general",
+            &format!("{m}-20"),
+            "BILL PAYMENT FRESH KITCHEN CATERING",
+            -cost,
+            &[("Hot lunch costs", -cost)],
+            Tx { payee: "Fresh Kitchen Catering", purpose: "Hot lunch food", receipt: true, ..Default::default() },
+        )
+        .await?;
+    }
+    let general_txs: &[(&str, &str, f64, &str, &str, &str, bool)] = &[
+        // (date, description, amount, line item, payee, purpose, receipt)
+        (
+            "2025-09-15",
+            "POS PURCHASE TIM HORTONS #2231",
+            -45.20,
+            "Hospitality and meetings",
+            "Tim Hortons",
+            "Coffee for September PAC meeting",
+            true,
+        ),
+        ("2025-09-18", "BILL PAYMENT BCCPAC", -425.00, "Insurance", "BCCPAC", "Directors and officers insurance", true),
+        (
+            "2025-10-05",
+            "DEPOSIT FALL FAIR CASH",
+            1850.25,
+            "Fundraising – Events",
+            "Fall Fair",
+            "Fall Fair proceeds",
+            false,
+        ),
+        (
+            "2025-10-03",
+            "POS PURCHASE COSTCO WHOLESALE #54",
+            -420.18,
+            "Fundraising event costs",
+            "Costco",
+            "Fall Fair supplies",
+            true,
+        ),
+        (
+            "2025-10-20",
+            "CHQ#000211",
+            -1000.00,
+            "Classroom grants",
+            "Classroom grants",
+            "Fall classroom grants, 10 classes",
+            true,
+        ),
+        (
+            "2025-11-08",
+            "POS PURCHASE STAPLES #112",
+            -54.99,
+            "Office and supplies",
+            "Staples",
+            "Printer paper and envelopes",
+            true,
+        ),
+        (
+            "2025-11-14",
+            "POS PURCHASE AMAZON.CA",
+            -312.40,
+            "Gaming-eligible costs (to be reimbursed)",
+            "Amazon",
+            "Sports day ribbons",
+            true,
+        ),
+        (
+            "2025-11-21",
+            "E-TRANSFER SENT KIDS MAGIC SHOWS",
+            -187.60,
+            "Gaming-eligible costs (to be reimbursed)",
+            "Kids Magic Shows",
+            "Deposit for winter assembly performer",
+            true,
+        ),
+        ("2025-12-02", "DEPOSIT DONATION", 500.00, "Donations", "Local business donation", "", false),
+        (
+            "2025-12-12",
+            "POS PURCHASE SAVE ON FOODS #9",
+            -380.50,
+            "Staff appreciation",
+            "Save-On-Foods",
+            "Staff holiday breakfast",
+            true,
+        ),
+        (
+            "2025-12-15",
+            "TRANSFER FROM 5678",
+            500.00,
+            "Reimbursement from gaming account",
+            "Gaming Account",
+            "Reimbursement of gaming-eligible costs",
+            false,
+        ),
+        ("2025-12-31", "INTEREST", 4.12, "Interest", "", "", false),
+        (
+            "2026-01-15",
+            "POS PURCHASE TIM HORTONS #2231",
+            -62.10,
+            "Hospitality and meetings",
+            "Tim Hortons",
+            "Coffee for January PAC meeting",
+            true,
+        ),
+        ("2026-01-22", "CHQ#000212", -1000.00, "Classroom grants", "Classroom grants", "Winter classroom grants", true),
+        (
+            "2026-02-10",
+            "DEPOSIT MOVIE NIGHT",
+            640.00,
+            "Fundraising – Events",
+            "Movie Night",
+            "Movie night tickets and snacks",
+            false,
+        ),
+        (
+            "2026-02-09",
+            "POS PURCHASE COSTCO WHOLESALE #54",
+            -212.40,
+            "Fundraising event costs",
+            "Costco",
+            "Movie night snacks",
+            true,
+        ),
+        ("2026-03-11", "DEPOSIT DONATION", 250.00, "Donations", "Parent donation", "", false),
+        ("2026-03-31", "INTEREST", 3.98, "Interest", "", "", false),
+        ("2026-04-14", "CHQ#000213", -950.00, "Classroom grants", "Classroom grants", "Spring classroom grants", false),
+        (
+            "2026-05-16",
+            "DEPOSIT SPRING CARNIVAL",
+            2300.00,
+            "Fundraising – Events",
+            "Spring Carnival",
+            "Carnival tickets and food",
+            false,
+        ),
+        (
+            "2026-05-14",
+            "POS PURCHASE PARTY RENTALS LTD",
+            -780.00,
+            "Fundraising event costs",
+            "Party Rentals Ltd",
+            "Bouncy castle and games",
+            true,
+        ),
+        (
+            "2026-06-12",
+            "POS PURCHASE SAVE ON FOODS #9",
+            -650.75,
+            "Staff appreciation",
+            "Save-On-Foods",
+            "Staff appreciation lunch",
+            true,
+        ),
+        (
+            "2026-06-15",
+            "POS PURCHASE TIM HORTONS #2231",
+            -88.30,
+            "Hospitality and meetings",
+            "Tim Hortons",
+            "Coffee for AGM",
+            true,
+        ),
+        ("2026-06-30", "INTEREST", 4.40, "Interest", "", "", false),
+        ("2026-09-17", "BILL PAYMENT BCCPAC", -450.00, "Insurance", "BCCPAC", "Directors and officers insurance", true),
+    ];
+    let mut reimbursed = Vec::new();
+    for (date, desc, amount, line, payee, purpose, receipt) in general_txs {
+        let id = demo
+            .tx(
+                g,
+                "general",
+                date,
+                desc,
+                *amount,
+                &[(line, *amount)],
+                Tx { payee, purpose, receipt: *receipt, ..Default::default() },
+            )
+            .await?;
+        if line.starts_with("Gaming-eligible") {
+            reimbursed.push(id);
+        }
+    }
+    // Not yet assigned to a line item.
+    demo.tx(g, "general", "2026-09-28", "E-TRANSFER RECEIVED A PARENT", 75.00, &[], Tx::default()).await?;
+    demo.tx(g, "general", "2026-10-03", "POS PURCHASE COSTCO WHOLESALE #54", -210.44, &[], Tx::default()).await?;
+
+    let gm = gaming;
+    #[allow(clippy::type_complexity)]
+    let gam: &[(&str, &str, f64, &str, &str, &str, &str, bool)] = &[
+        // (date, description, amount, line item, payee, purpose, reference, receipt)
+        ("2025-09-23", "DEPOSIT PROVINCE OF BC GAMING", 8240.00, "PAC gaming grant", "Province of BC", "", "", false),
+        (
+            "2025-09-30",
+            "CHQ#000101",
+            -75.00,
+            "BCCPAC membership and conference",
+            "BCCPAC",
+            "2025–26 BCCPAC membership",
+            "101",
+            true,
+        ),
+        (
+            "2025-10-16",
+            "CHQ#000102",
+            -1240.00,
+            "Field trips (within BC)",
+            "First Student Canada",
+            "Bus for grade 4 trip to Science World",
+            "102",
+            true,
+        ),
+        (
+            "2025-11-19",
+            "CHQ#000103",
+            -850.00,
+            "Presentations and performances",
+            "Science World on the Road",
+            "Science assembly for all grades",
+            "103",
+            true,
+        ),
+        ("2025-12-31", "INTEREST", 3.21, "Interest and GST rebates", "", "", "", false),
+        (
+            "2026-02-11",
+            "CHQ#000104",
+            -1388.75,
+            "Sports equipment and uniforms",
+            "Sport Chek",
+            "Basketballs, pinnies, and nets for lunch-hour sports",
+            "104",
+            true,
+        ),
+        (
+            "2026-03-09",
+            "CHQ#000105",
+            -460.00,
+            "Clubs and student competitions",
+            "Robotics League",
+            "Robotics club entry fees",
+            "105",
+            false,
+        ),
+        ("2026-03-31", "INTEREST", 2.87, "Interest and GST rebates", "", "", "", false),
+        (
+            "2026-04-22",
+            "CHQ#000106",
+            -1875.00,
+            "Playground and beautification",
+            "Playground Supply Co",
+            "Playground balls and four-square court paint",
+            "106",
+            true,
+        ),
+        (
+            "2026-05-20",
+            "CHQ#000107",
+            -1950.00,
+            "Field trips (within BC)",
+            "First Student Canada",
+            "Buses for grade 6/7 trip to Fort Langley",
+            "107",
+            true,
+        ),
+        ("2026-06-10", "CHQ#000108", -545.32, "Graduation and student recognition", "Party City", "", "108", true),
+        ("2026-06-30", "INTEREST", 2.40, "Interest and GST rebates", "", "", "", false),
+        ("2026-09-22", "DEPOSIT PROVINCE OF BC GAMING", 8240.00, "PAC gaming grant", "Province of BC", "", "", false),
+        (
+            "2026-10-02",
+            "CHQ#000109",
+            -1300.00,
+            "Field trips (within BC)",
+            "First Student Canada",
+            "Bus for grade 3 trip to the aquarium",
+            "109",
+            true,
+        ),
+    ];
+    for (date, desc, amount, line, payee, purpose, reference, receipt) in gam {
+        demo.tx(
+            gm,
+            "gaming",
+            date,
+            desc,
+            *amount,
+            &[(line, *amount)],
+            Tx { payee, purpose, reference, receipt: *receipt, ..Default::default() },
+        )
+        .await?;
+    }
+    // The December reimbursement transfer, split across the two eligible costs.
+    let transfer = demo
+        .tx(
+            gm,
+            "gaming",
+            "2025-12-15",
+            "TRANSFER TO 1234",
+            -500.00,
+            &[("Sports equipment and uniforms", -312.40), ("Presentations and performances", -187.60)],
+            Tx {
+                payee: "PAC General Account",
+                purpose: "Reimbursement: sports day ribbons and performer deposit (see summary)",
+                reference: "EFT",
+                ..Default::default()
+            },
+        )
+        .await?;
+    for id in reimbursed {
+        sqlx::query("UPDATE transactions SET reimbursed_by_id = ? WHERE id = ?")
+            .bind(transfer)
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
+    // A cheque written but not cashed yet.
+    demo.tx(
+        gm,
+        "gaming",
+        "2026-10-08",
+        "Mad Science of Vancouver",
+        -620.00,
+        &[("Presentations and performances", -620.00)],
+        Tx {
+            payee: "Mad Science of Vancouver",
+            purpose: "Science assembly, grades K to 3",
+            reference: "110",
+            receipt: true,
+            cleared: Some(false),
+        },
+    )
+    .await?;
+
+    for (pattern, line, fund) in
+        [("SERVICE CHARGE", "Bank fees", "general"), ("MUNCH A LUNCH", "Fundraising – Hot lunch", "general")]
+    {
+        let li = demo.line(fund, line).await?;
+        sqlx::query("INSERT INTO rules (pattern, line_item_id) VALUES (?, ?)")
+            .bind(pattern)
+            .bind(li)
+            .execute(pool)
+            .await?;
+    }
+    println!("Loaded the example PAC. Start the app with the same --data-dir and open it in a browser.");
+    Ok(())
+}

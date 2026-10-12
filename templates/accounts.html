@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/settings">Settings</a> ›</p>
+    <h1>Bank accounts</h1>
+    <p class="sub">A gaming account holds only BC Community Gaming Grant money. The app keeps its line items, balances, and reports apart from the general fund.</p>
+  </div>
+</div>
+
+{% if !accounts.is_empty() %}
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Account</th><th>Kind</th><th>Number</th><th>Opening balance</th><th class="num">Balance today</th><th></th></tr></thead>
+    <tbody>
+    {% for (a, bal) in accounts %}
+      <tr>
+        <td>{{ a.name }}{% if !a.active %} <span class="tag muted">closed</span>{% endif %}</td>
+        <td>{% if a.is_gaming() %}<span class="tag gaming">gaming grant</span>{% else %}<span class="tag">general</span>{% endif %}</td>
+        <td>{{ a.account_number }}</td>
+        <td>{{ a.opening_balance() }} on {{ a.opening_date }}</td>
+        <td class="num">{{ bal }}</td>
+        <td><a href="/accounts/{{ a.id }}">Edit</a> · <a href="/transactions?account={{ a.id }}&fy=all">Transactions</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if layout.can_edit %}
+<form class="panel" method="post" action="/accounts" style="max-width: 760px;">
+  <h2>Add an account</h2>
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" placeholder="General chequing" required></div>
+    <div class="field"><label for="kind">Kind</label>
+      <select id="kind" name="kind">
+        <option value="general">General: any PAC spending</option>
+        <option value="gaming">BC gaming grant account</option>
+      </select>
+    </div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="institution">Bank</label><input type="text" id="institution" name="institution" value="Prospera Credit Union"></div>
+    <div class="field"><label for="account_number">Account number</label><input type="text" id="account_number" name="account_number" placeholder="last 4 digits are enough"></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="opening_date">Opening balance date</label><input type="date" id="opening_date" name="opening_date" value="{{ today }}" required>
+      <div class="hint">Usually the first day of the fiscal year you start tracking. Bank rows before this date are skipped.</div></div>
+    <div class="field"><label for="opening_balance">Opening balance</label><input type="text" class="amount" id="opening_balance" name="opening_balance" placeholder="0.00">
+      <div class="hint">The balance at the start of that day, from a bank statement.</div></div>
+  </div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes" placeholder="Signing officers, branch, and so on"></textarea></div>
+  <input type="hidden" name="active" value="1">
+  <button>Add account</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/settings">Settings</a> ›</p>
+    <h1>Line items</h1>
+    <p class="sub">The budget lines that transactions are assigned to. Each line belongs to one fund. Lines stay the same from year to year, so years compare.</p>
+  </div>
+</div>
+
+<div class="grid two">
+{% for fund in ["general", "gaming"] %}
+  <div class="panel" style="padding: 0;">
+    <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">{% if *fund == "gaming" %}Gaming grant fund{% else %}General fund{% endif %}</h2></div>
+    <table>
+      <thead><tr><th>Name</th><th>Kind</th><th class="num">Used</th><th></th></tr></thead>
+      <tbody>
+      {% for (li, used) in items %}{% if li.fund == *fund %}
+        <tr>
+          <td>{{ li.name }}{% if !li.active %} <span class="tag muted">hidden</span>{% endif %}
+            {% if let Some(g) = li.gasr_line %} <span class="tag gaming" title="Gaming Account Summary Report line">GASR line {{ g }}</span>{% endif %}
+            {% if li.kind == "expense" && !li.receipt_required %} <span class="tag muted">no receipt needed</span>{% endif %}</td>
+          <td>{{ li.kind }}</td>
+          <td class="num">{{ used }}</td>
+          <td><a href="/line-items/{{ li.id }}">Edit</a></td>
+        </tr>
+      {% endif %}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endfor %}
+</div>
+
+{% if layout.can_edit %}
+<form class="panel" method="post" action="/line-items" style="max-width: 760px;">
+  <h2>Add a line item</h2>
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" required></div>
+    <div class="field"><label for="fund">Fund</label>
+      <select id="fund" name="fund"><option value="general">General</option><option value="gaming">Gaming grant</option></select>
+    </div>
+    <div class="field"><label for="kind">Kind</label>
+      <select id="kind" name="kind"><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer between accounts</option></select>
+    </div>
+  </div>
+  <div class="field"><label for="gasr_line">Gaming report line (gaming income only)</label>
+    <select id="gasr_line" name="gasr_line">
+      <option value="">—</option>
+      <option value="3">Line 3: PAC/DPAC grant</option>
+      <option value="14">Line 14: GST rebate, interest, asset sales</option>
+    </select>
+  </div>
+  <div class="field"><label for="description">Description</label><input type="text" id="description" name="description"></div>
+  <button>Add line item</button>
+</form>
+{% endif %}
+{% endblock %}

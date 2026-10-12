@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/budget?fy={{ p.base.id }}">Budget {{ p.base.label }}</a> ›</p>
+    <h1>Proposed budget {{ p.target.label }}</h1>
+    <p class="sub">{{ p.target.period() }}. Based on {{ p.base.label }}{% if !p.base_complete %}, with actuals to {{ p.actuals_to.format("%B %-d, %Y") }}{% endif %}.</p>
+  </div>
+  <div class="actions">
+    <form method="get" action="/budget/proposal">
+      <label class="small muted" for="base" style="display:inline">Based on</label>
+      <select id="base" name="base" onchange="this.form.submit()" style="width:auto">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == p.base.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </form>
+    <a class="button" href="/reports/budget.pdf?fy={{ p.target.id }}">Budget proposal PDF</a>
+  </div>
+</div>
+
+{% if layout.can_edit %}
+<div class="panel">
+  <h2>Start from last year</h2>
+  <p class="small muted">This sets every proposed amount. Notes are kept. {% if settings.enrolment > 0 %}The gaming grant line uses {{ settings.enrolment }} students × {{ settings.gaming_rate() }} = {{ p.expected_grant }}.{% else %}Enter the enrolment in <a href="/settings">settings</a> to estimate the gaming grant.{% endif %}</p>
+  <form method="post" action="/budget/proposal/fill" style="display:flex; gap: 8px; flex-wrap: wrap;" onsubmit="return confirm('Replace all proposed amounts?')">
+    <input type="hidden" name="base" value="{{ p.base.id }}">
+    <button name="how" value="budget" class="secondary">Copy {{ p.base.label }} budget</button>
+    <button name="how" value="actual" class="secondary">Copy {{ p.base.label }} actuals</button>
+    <button name="how" value="rounded" class="secondary">Actuals, rounded up to $50</button>
+  </form>
+</div>
+{% endif %}
+
+<form method="post" action="/budget/{{ p.target.id }}/amounts">
+<input type="hidden" name="back" value="/budget/proposal?base={{ p.base.id }}">
+{% for f in p.funds %}
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">{{ f.title() }}</h2></div>
+  <table>
+    <thead><tr><th>Line item</th><th class="num">{{ p.base.label }} budget</th><th class="num">{{ p.base.label }} actual</th><th class="num">{{ p.target.label }} proposed</th><th class="num">Change</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr class="section"><td colspan="6">Income</td></tr>
+      {% for l in f.income %}
+      <tr>
+        <td>{{ l.name }}</td>
+        <td class="num">{{ l.prior_budget }}</td>
+        <td class="num">{{ l.prior_actual }}</td>
+        <td class="num">{% if layout.can_edit %}<input type="hidden" name="line_item_id" value="{{ l.line_item_id }}"><input class="amount" type="text" name="amount" value="{{ l.proposed.input() }}" placeholder="0.00">{% else %}{{ l.proposed }}{% endif %}</td>
+        <td class="num {% if l.change().is_negative() %}neg{% endif %}">{{ l.change() }}</td>
+        <td>{% if layout.can_edit %}<input type="text" name="notes" value="{{ l.notes }}">{% else %}{{ l.notes }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr class="subtotal"><td>Total income</td><td class="num">{{ f.income_prior_budget() }}</td><td class="num">{{ f.income_prior_actual() }}</td><td class="num">{{ f.income_proposed() }}</td><td class="num">{{ f.income_proposed() - f.income_prior_budget() }}</td><td></td></tr>
+      <tr class="section"><td colspan="6">Expenses</td></tr>
+      {% for l in f.expense %}
+      <tr>
+        <td>{{ l.name }}</td>
+        <td class="num">{{ l.prior_budget }}</td>
+        <td class="num">{{ l.prior_actual }}</td>
+        <td class="num">{% if layout.can_edit %}<input type="hidden" name="line_item_id" value="{{ l.line_item_id }}"><input class="amount" type="text" name="amount" value="{{ l.proposed.input() }}" placeholder="0.00">{% else %}{{ l.proposed }}{% endif %}</td>
+        <td class="num">{{ l.change() }}</td>
+        <td>{% if layout.can_edit %}<input type="text" name="notes" value="{{ l.notes }}">{% else %}{{ l.notes }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      <tr class="subtotal"><td>Total expenses</td><td class="num">{{ f.expense_prior_budget() }}</td><td class="num">{{ f.expense_prior_actual() }}</td><td class="num">{{ f.expense_proposed() }}</td><td class="num">{{ f.expense_proposed() - f.expense_prior_budget() }}</td><td></td></tr>
+      <tr class="total"><td>Surplus / (deficit)</td><td class="num">{{ f.net_prior_budget() }}</td><td class="num">{{ f.net_prior_actual() }}</td><td class="num {% if f.net_proposed().is_negative() %}neg{% endif %}">{{ f.net_proposed() }}</td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  <p class="small muted" style="padding: 0 18px 12px;">Fund balance on {{ p.actuals_to.format("%B %-d, %Y") }}: {{ f.balance_now }}.{% if f.net_proposed().is_negative() %} A deficit of {{ f.net_proposed().abs() }} draws on this balance.{% endif %}</p>
+</div>
+{% endfor %}
+{% if layout.can_edit %}<p><button>Save proposed budget</button></p>{% endif %}
+</form>
+
+<div class="panel">
+  <h2>Approval</h2>
+  <p class="small">When the members approve the budget, set the status to Approved on the <a href="/budget?fy={{ p.target.id }}">{{ p.target.label }} budget page</a>. Status now: <strong>{{ p.target.budget_status }}</strong>.</p>
+</div>
+{% endblock %}

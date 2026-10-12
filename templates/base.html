@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ layout.title }} · {{ layout.pac_name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">{{ layout.pac_name }}</a>
+    <nav>
+      <a href="/" {% if layout.nav == "dashboard" %}class="on"{% endif %}>Dashboard</a>
+      <a href="/transactions" {% if layout.nav == "transactions" %}class="on"{% endif %}>Transactions{% if layout.counts.uncategorized > 0 %}<span class="count" title="Transactions with no line item">{{ layout.counts.uncategorized }}</span>{% endif %}</a>
+      {% if layout.can_edit %}<a href="/import" {% if layout.nav == "import" %}class="on"{% endif %}>Import</a>{% endif %}
+      <a href="/budget" {% if layout.nav == "budget" %}class="on"{% endif %}>Budget</a>
+      <a href="/gaming" {% if layout.nav == "gaming" %}class="on"{% endif %}>Gaming grant</a>
+      <a href="/reports" {% if layout.nav == "reports" %}class="on"{% endif %}>Reports</a>
+      <a href="/settings" {% if layout.nav == "settings" %}class="on"{% endif %}>Settings</a>
+    </nav>
+    {% if let Some(name) = layout.user_name %}
+    <div class="user">{{ name }}<form method="post" action="/logout"><button>Sign out</button></form></div>
+    {% endif %}
+  </header>
+  <main>
+    {% if let Some(m) = layout.flash_ok %}<div class="flash ok">{{ m }}</div>{% endif %}
+    {% if let Some(m) = layout.flash_err %}<div class="flash err">{{ m }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

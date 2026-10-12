@@ -1,0 +1,242 @@
+//! The web interface: server-rendered pages with htmx for small updates.
+
+mod accounts;
+mod auth;
+mod budget;
+mod dashboard;
+mod import;
+mod reports;
+mod settings;
+mod transactions;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use askama::Template;
+use axum::extract::{DefaultBodyLimit, FromRef};
+use axum::http::{StatusCode, header};
+use axum::middleware;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::routing::{get, post};
+use axum::{Extension, Router};
+use axum_extra::extract::cookie::Key;
+use serde::Deserialize;
+use sqlx::SqlitePool;
+
+use crate::db::Settings;
+use crate::ledger::{self, Counts};
+use crate::models::User;
+use crate::reports::pdf::Renderer;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: SqlitePool,
+    pub data_dir: PathBuf,
+    pub renderer: Arc<Renderer>,
+    pub auth: bool,
+    pub key: Key,
+}
+
+impl FromRef<AppState> for Key {
+    fn from_ref(state: &AppState) -> Key {
+        state.key.clone()
+    }
+}
+
+pub fn router(state: AppState) -> Router {
+    Router::new()
+        .route("/", get(dashboard::page))
+        .route("/transactions", get(transactions::list).post(transactions::create))
+        .route("/transactions/new", get(transactions::new_form))
+        .route("/transactions/{id}", get(transactions::detail).post(transactions::update))
+        .route("/transactions/{id}/assign", post(transactions::assign))
+        .route("/transactions/{id}/allocations", post(transactions::set_allocations))
+        .route("/transactions/{id}/attachments", post(transactions::upload))
+        .route("/transactions/{id}/rule", post(transactions::make_rule))
+        .route("/transactions/{id}/reimburses", post(transactions::set_reimbursements))
+        .route("/transactions/{id}/delete", post(transactions::delete))
+        .route("/attachments/{id}", get(transactions::attachment))
+        .route("/attachments/{id}/delete", post(transactions::delete_attachment))
+        .route("/import", get(import::page).post(import::upload))
+        .route("/import/{id}", get(import::preview))
+        .route("/import/{id}/table", post(import::preview_table))
+        .route("/import/{id}/commit", post(import::commit))
+        .route("/import/{id}/undo", post(import::undo))
+        .route("/budget", get(budget::page))
+        .route("/budget/{fy}/amounts", post(budget::set_amounts))
+        .route("/budget/{fy}/year", post(budget::update_year))
+        .route("/budget/proposal", get(budget::proposal))
+        .route("/budget/proposal/fill", post(budget::fill))
+        .route("/budget/next-year", post(budget::create_next_year))
+        .route("/reports", get(reports::page))
+        .route("/reports/monthly.pdf", get(reports::monthly_pdf))
+        .route("/reports/annual.pdf", get(reports::annual_pdf))
+        .route("/reports/budget.pdf", get(reports::budget_pdf))
+        .route("/reports/gaming.pdf", get(reports::gaming_pdf))
+        .route("/gaming", get(reports::gaming_page))
+        .route("/settings", get(settings::page).post(settings::save))
+        .route("/settings/backup.zip", get(settings::backup))
+        .route("/accounts", get(accounts::list).post(accounts::create))
+        .route("/accounts/{id}", get(accounts::edit).post(accounts::update))
+        .route("/line-items", get(accounts::line_items).post(accounts::create_line_item))
+        .route("/line-items/{id}", get(accounts::edit_line_item).post(accounts::update_line_item))
+        .route("/rules", get(accounts::rules).post(accounts::create_rule))
+        .route("/rules/{id}/delete", post(accounts::delete_rule))
+        .route("/login", get(auth::login_page).post(auth::login))
+        .route("/logout", post(auth::logout))
+        .route("/static/app.css", get(|| async { static_file("text/css", include_str!("../../static/app.css")) }))
+        .route(
+            "/static/htmx.min.js",
+            get(|| async { static_file("text/javascript", include_str!("../../static/htmx.min.js")) }),
+        )
+        .fallback(|| async { AppError::NotFound })
+        .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
+        .layer(DefaultBodyLimit::max(40 * 1024 * 1024))
+        .with_state(state)
+}
+
+fn static_file(content_type: &'static str, body: &'static str) -> Response {
+    ([(header::CONTENT_TYPE, content_type), (header::CACHE_CONTROL, "public, max-age=3600")], body).into_response()
+}
+
+/// Who is signed in. `None` when auth is off (local mode): everyone can edit.
+#[derive(Clone)]
+pub struct CurrentUser(pub Option<User>);
+
+impl CurrentUser {
+    pub fn can_edit(&self) -> bool {
+        self.0.as_ref().is_none_or(|u| u.can_edit())
+    }
+}
+
+/// Data the page frame needs.
+pub struct Layout {
+    pub title: String,
+    pub nav: &'static str,
+    pub pac_name: String,
+    pub counts: Counts,
+    pub can_edit: bool,
+    pub user_name: Option<String>,
+    pub flash_ok: Option<String>,
+    pub flash_err: Option<String>,
+}
+
+impl Layout {
+    pub async fn new(
+        state: &AppState,
+        user: &CurrentUser,
+        nav: &'static str,
+        title: impl Into<String>,
+        flash: &Flash,
+    ) -> AppResult<Layout> {
+        let settings = Settings::load(&state.pool).await?;
+        Ok(Layout {
+            title: title.into(),
+            nav,
+            pac_name: settings.pac_name,
+            counts: ledger::counts(&state.pool).await?,
+            can_edit: user.can_edit(),
+            user_name: user
+                .0
+                .as_ref()
+                .map(|u| if u.display_name.is_empty() { u.username.clone() } else { u.display_name.clone() }),
+            flash_ok: flash.msg.clone().filter(|s| !s.is_empty()),
+            flash_err: flash.err.clone().filter(|s| !s.is_empty()),
+        })
+    }
+}
+
+/// One-off messages carried in the query string after a redirect.
+#[derive(Debug, Default, Deserialize)]
+pub struct Flash {
+    pub msg: Option<String>,
+    pub err: Option<String>,
+}
+
+pub fn redirect_ok(to: &str, msg: &str) -> Response {
+    Redirect::to(&with_param(to, "msg", msg)).into_response()
+}
+
+pub fn redirect_err(to: &str, err: &str) -> Response {
+    Redirect::to(&with_param(to, "err", err)).into_response()
+}
+
+fn with_param(to: &str, key: &str, value: &str) -> String {
+    let sep = if to.contains('?') { '&' } else { '?' };
+    format!("{to}{sep}{key}={}", urlencode(value))
+}
+
+pub fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+pub fn render(t: impl Template) -> AppResult<Response> {
+    Ok(Html(t.render().map_err(anyhow::Error::from)?).into_response())
+}
+
+pub type AppResult<T> = Result<T, AppError>;
+
+#[derive(Debug)]
+pub enum AppError {
+    NotFound,
+    Forbidden,
+    BadRequest(String),
+    Internal(anyhow::Error),
+}
+
+impl<E: Into<anyhow::Error>> From<E> for AppError {
+    fn from(e: E) -> Self {
+        AppError::Internal(e.into())
+    }
+}
+
+#[derive(Template)]
+#[template(path = "error.html")]
+struct ErrorPage {
+    title: String,
+    message: String,
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, title, message) = match self {
+            AppError::NotFound => {
+                (StatusCode::NOT_FOUND, "Not found", "That page or record does not exist.".to_string())
+            }
+            AppError::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "Not allowed",
+                "Your account can view, but not change, the records.".to_string(),
+            ),
+            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, "Cannot do that", m),
+            AppError::Internal(e) => {
+                tracing::error!("{e:#}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong", format!("{e:#}"))
+            }
+        };
+        let page = ErrorPage { title: title.to_string(), message };
+        let body = page.render().unwrap_or_else(|_| "error".to_string());
+        (status, Html(body)).into_response()
+    }
+}
+
+/// Rejects edits from users who can only view.
+pub fn require_edit(user: &CurrentUser) -> AppResult<()> {
+    if user.can_edit() { Ok(()) } else { Err(AppError::Forbidden) }
+}
+
+/// Parses an optional id from a form or query value; "" is None.
+pub fn opt_id(s: &Option<String>) -> Option<i64> {
+    s.as_deref().and_then(|v| v.trim().parse().ok())
+}
+
+pub type UserExt = Extension<CurrentUser>;
+
+pub use auth::add_user;

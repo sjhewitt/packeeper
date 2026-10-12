@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/transactions">Transactions</a> ›</p>
+    <h1>{{ r.tx.display_name() }}</h1>
+    <p class="sub">
+      {{ r.tx.date.format("%A, %B %-d, %Y") }} ·
+      <strong class="{% if r.tx.amount().is_negative() %}neg{% else %}pos{% endif %}">{{ r.tx.amount() }}</strong> ·
+      {{ account.name }} {% if account.is_gaming() %}<span class="tag gaming">gaming</span>{% endif %}
+      {% if !r.tx.cleared %}<span class="tag muted">not cleared at the bank</span>{% endif %}
+    </p>
+  </div>
+  {% if layout.can_edit %}
+  <div class="actions">
+    <form method="post" action="/transactions/{{ r.tx.id }}/delete" onsubmit="return confirm('Delete this transaction and its receipts? {% if r.tx.source == "import" %}It will come back if you import the same bank file again.{% endif %}')">
+      <button class="danger small">Delete</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Details</h2>
+    <form method="post" action="/transactions/{{ r.tx.id }}">
+      {% if r.tx.source == "manual" %}
+      <div class="fields">
+        <div class="field"><label for="date">Date</label><input type="date" id="date" name="date" value="{{ r.tx.date }}" required></div>
+        <div class="field"><label for="amount">Amount</label><input type="text" class="amount" id="amount" name="amount" value="{{ r.tx.amount().plain() }}" required><div class="hint">Negative for money out.</div></div>
+      </div>
+      <div class="field"><label for="description">Description</label><input type="text" id="description" name="description" value="{{ r.tx.description }}"></div>
+      <div class="field"><label class="check"><input type="checkbox" name="cleared" {% if r.tx.cleared %}checked{% endif %}> Cleared at the bank</label><div class="hint">Leave this off for a cheque the bank has not cashed. An import matches it later.</div></div>
+      {% endif %}
+      <div class="field"><label for="payee">Payee or payer</label><input type="text" id="payee" name="payee" value="{{ r.tx.payee }}" placeholder="{{ r.tx.description }}"><div class="hint">A clear name for reports. The bank description stays on record.</div></div>
+      <div class="field"><label for="purpose">Purpose</label><input type="text" id="purpose" name="purpose" value="{{ r.tx.purpose }}" placeholder="e.g. Bus for grade 4 trip to Science World"><div class="hint">{% if account.is_gaming() %}Required for gaming payments. The Gaming Account Summary Report prints it.{% else %}Printed in the monthly report.{% endif %}</div></div>
+      <div class="field"><label for="reference">Cheque or reference number</label><input type="text" id="reference" name="reference" value="{{ r.tx.reference }}"></div>
+      <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes">{{ r.tx.notes }}</textarea></div>
+      {% if layout.can_edit %}<button>Save details</button>{% endif %}
+    </form>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Line items</h2>
+      {% if line_items.is_empty() %}
+      <p class="muted">There are no {{ account.kind }} line items. <a href="/line-items">Add one</a>.</p>
+      {% else %}
+      <form method="post" action="/transactions/{{ r.tx.id }}/allocations" id="splits">
+        <div class="split-row muted small"><span>Line item</span><span>Amount</span><span>Memo</span><span></span></div>
+        {% for (a, _name) in allocations %}
+        <div class="split-row">
+          <select name="line_item_id">
+            <option value="">—</option>
+            {% for li in line_items %}<option value="{{ li.id }}" {% if li.id == a.line_item_id %}selected{% endif %}>{{ li.label() }}</option>{% endfor %}
+          </select>
+          <input type="text" class="amount" name="amount" value="{{ a.amount().abs().plain() }}">
+          <input type="text" name="memo" value="{{ a.memo }}">
+          <button type="button" class="danger small" onclick="this.parentElement.remove()" title="Remove">×</button>
+        </div>
+        {% endfor %}
+        {% if allocations.is_empty() %}
+        <div class="split-row">
+          <select name="line_item_id">
+            <option value="">— choose —</option>
+            {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}">{{ li.label() }}</option>{% endif %}{% endfor %}
+          </select>
+          <input type="text" class="amount" name="amount" placeholder="all">
+          <input type="text" name="memo">
+          <span></span>
+        </div>
+        {% endif %}
+        <template id="split-template">
+          <div class="split-row">
+            <select name="line_item_id">
+              <option value="">— choose —</option>
+              {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}">{{ li.label() }}</option>{% endif %}{% endfor %}
+            </select>
+            <input type="text" class="amount" name="amount" placeholder="rest">
+            <input type="text" name="memo">
+            <button type="button" class="danger small" onclick="this.parentElement.remove()" title="Remove">×</button>
+          </div>
+        </template>
+        <p class="small">
+          {% if r.is_categorized() %}<span class="tag good">fully assigned</span>{% else %}<span class="tag warn">{{ r.unallocated().abs() }} not assigned</span>{% endif %}
+          {% if layout.can_edit %}<a href="#" onclick="var t=document.getElementById('split-template'); this.closest('form').insertBefore(t.content.cloneNode(true), t); return false;">Split across another line item</a>{% endif %}
+        </p>
+        {% if layout.can_edit %}<button>Save line items</button>{% endif %}
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <h2>Record</h2>
+      <dl class="facts">
+        <dt>Bank description</dt><dd>{{ r.tx.description }}</dd>
+        <dt>Account</dt><dd>{{ account.name }}{% if !account.account_number.is_empty() %} ({{ account.account_number }}){% endif %}</dd>
+        <dt>Fiscal year</dt><dd>{% if let Some(fy) = fy %}{{ fy.label }}{% else %}—{% endif %}</dd>
+        <dt>Source</dt><dd>{% if r.tx.source == "import" %}Bank import{% else %}Entered by hand{% endif %}{% if let Some(b) = r.tx.import_batch_id %} · <a href="/import/{{ b }}">import #{{ b }}</a>{% endif %}</dd>
+        {% if let Some(b) = r.tx.bank_balance() %}<dt>Bank balance after</dt><dd>{{ b }}</dd>{% endif %}
+        <dt>Added</dt><dd>{{ r.tx.created_at }}</dd>
+        {% if let Some(rb) = reimbursed_by %}
+        <dt>Repaid by gaming</dt><dd><a href="/transactions/{{ rb.id }}">{{ rb.date }} {{ rb.amount().abs() }} transfer</a></dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Receipts and documents</h2>
+  {% if attachments.is_empty() %}
+    <p class="muted">{% if r.needs_receipt() %}<span class="tag bad">receipt needed</span> {% endif %}No files attached.</p>
+  {% else %}
+  <div class="receipts">
+    {% for a in attachments %}
+    <div class="receipt">
+      <a href="/attachments/{{ a.id }}" target="_blank">
+        {% if a.is_image() %}<img src="/attachments/{{ a.id }}" alt="{{ a.filename }}">{% else %}<div class="doc">{% if a.content_type == "application/pdf" %}PDF{% else %}FILE{% endif %}</div>{% endif %}
+      </a>
+      <div class="name" title="{{ a.filename }}">{{ a.filename }}</div>
+      <div class="muted">{{ a.size_label() }} · {{ a.uploaded_at }}</div>
+      {% if layout.can_edit %}
+      <form method="post" action="/attachments/{{ a.id }}/delete" onsubmit="return confirm('Remove this file?')"><button class="danger small">Remove</button></form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if layout.can_edit %}
+  <form method="post" action="/transactions/{{ r.tx.id }}/attachments" enctype="multipart/form-data" style="margin-top: 14px;" id="upload">
+    <div class="dropzone" id="dropzone">
+      Drop photos or PDFs here, or <label style="display:inline; color: var(--accent); cursor: pointer;"><u>choose files</u><input type="file" name="files" multiple accept="image/*,application/pdf,.heic" style="display:none" onchange="this.form.submit()"></label>
+    </div>
+  </form>
+  <script>
+    (function () {
+      var zone = document.getElementById('dropzone');
+      var input = zone.querySelector('input[type=file]');
+      ['dragenter', 'dragover'].forEach(function (e) { zone.addEventListener(e, function (ev) { ev.preventDefault(); zone.classList.add('over'); }); });
+      ['dragleave', 'drop'].forEach(function (e) { zone.addEventListener(e, function (ev) { ev.preventDefault(); zone.classList.remove('over'); }); });
+      zone.addEventListener('drop', function (ev) { input.files = ev.dataTransfer.files; input.form.submit(); });
+    })();
+  </script>
+  {% endif %}
+</div>
+
+{% if !reimburse_candidates.is_empty() %}
+<details class="panel help" {% if reimbursed_total.cents() > 0 %}open{% endif %}>
+  <summary>Is this a transfer to the general account? Link the expenses it repays</summary>
+  <p class="muted small">
+    Gaming funds may move to the general account only to repay eligible expenses from the same fiscal year, with receipts.
+    Tick the general-account expenses that this transfer repays. They must add up to exactly {{ r.tx.amount().abs() }}.
+  </p>
+  <form method="post" action="/transactions/{{ r.tx.id }}/reimburses">
+    <table>
+      <thead><tr><th></th><th>Date</th><th>Paid to</th><th>Purpose</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+      {% for (t, linked) in reimburse_candidates %}
+        <tr>
+          <td><input type="checkbox" name="expense_id" value="{{ t.id }}" {% if *linked %}checked{% endif %}></td>
+          <td class="nowrap">{{ t.date }}</td>
+          <td><a href="/transactions/{{ t.id }}">{{ t.display_name() }}</a></td>
+          <td>{{ t.purpose }}</td>
+          <td class="num">{{ t.amount().abs() }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="small">Linked now: <strong>{{ reimbursed_total }}</strong> of {{ r.tx.amount().abs() }}
+      {% if reimbursed_total == r.tx.amount().abs() %}<span class="tag good">matches</span>{% else if reimbursed_total.cents() > 0 %}<span class="tag bad">does not match</span>{% endif %}</p>
+    {% if layout.can_edit %}<button>Save reimbursement summary</button>{% endif %}
+  </form>
+</details>
+{% endif %}
+
+{% if layout.can_edit && !line_items.is_empty() %}
+<div class="panel">
+  <h2>Assign similar transactions automatically</h2>
+  <form method="post" action="/transactions/{{ r.tx.id }}/rule">
+    <div class="fields">
+      <div class="field"><label for="pattern">When the bank description contains</label><input type="text" id="pattern" name="pattern" value="{{ rule_pattern }}" required></div>
+      <div class="field"><label for="rule_li">Assign to</label>
+        <select id="rule_li" name="line_item_id">
+          {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}" {% if r.is_line(li.id) %}selected{% endif %}>{{ li.label() }}</option>{% endif %}{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label for="rule_payee">and set the payee to</label><input type="text" id="rule_payee" name="payee" value="{{ r.tx.payee }}" placeholder="optional"></div>
+    </div>
+    <label class="check"><input type="checkbox" name="this_account" checked> Only for {{ account.name }}</label>
+    <label class="check"><input type="checkbox" name="apply_now" checked> Also apply to transactions that have no line item now</label>
+    <p><button class="secondary">Save rule</button> <a class="small" href="/rules">All rules</a></p>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Transactions</h1>
+    <p class="sub">{{ rows.len() }} shown · in {{ total_in }} · out {{ total_out.abs() }}</p>
+  </div>
+  {% if can_edit %}
+  <div class="actions">
+    <a class="button" href="/import">Import bank file</a>
+    <a class="button secondary" href="/transactions/new">Add transaction</a>
+  </div>
+  {% endif %}
+</div>
+
+<form class="panel filters" method="get" action="/transactions">
+  <div class="field">
+    <label for="fy">Fiscal year</label>
+    <select id="fy" name="fy" onchange="this.form.month.value=''; this.form.submit()">
+      <option value="all" {% if sel_fy == "all" %}selected{% endif %}>All years</option>
+      {% for y in years %}<option value="{{ y.id }}" {% if sel_fy == y.id.to_string() %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="month">Month</label>
+    <select id="month" name="month" onchange="this.form.submit()">
+      <option value="">Whole year</option>
+      {% for (value, label) in months %}<option value="{{ value }}" {% if sel_month == value.as_str() %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="account">Account</label>
+    <select id="account" name="account" onchange="this.form.submit()">
+      <option value="">All accounts</option>
+      {% for a in accounts %}<option value="{{ a.id }}" {% if self.is_account(a.id) %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="line">Line item</label>
+    <select id="line" name="line" onchange="this.form.submit()">
+      <option value="">All line items</option>
+      {% for li in line_items %}<option value="{{ li.id }}" {% if self.is_line(li.id) %}selected{% endif %}>{% if li.fund == "gaming" %}Gaming: {% endif %}{{ li.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="q">Search</label>
+    <input type="search" id="q" name="q" value="{{ search }}" placeholder="Description, payee, notes">
+  </div>
+  <div class="field">
+    <label class="check"><input type="checkbox" name="uncategorized" value="1" {% if uncategorized %}checked{% endif %} onchange="this.form.submit()"> No line item</label>
+    <label class="check"><input type="checkbox" name="missing_receipt" value="1" {% if missing_receipt %}checked{% endif %} onchange="this.form.submit()"> No receipt</label>
+    <label class="check"><input type="checkbox" name="uncleared" value="1" {% if uncleared %}checked{% endif %} onchange="this.form.submit()"> Not cleared</label>
+  </div>
+  <div class="field"><button class="secondary">Filter</button> <a class="small" href="/transactions">Clear</a></div>
+</form>
+
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Line item</th><th class="num">Amount</th><th>Receipt</th></tr></thead>
+    <tbody>
+      {% for r in rows %}{% include "partials/tx_row.html" %}{% endfor %}
+      {% if rows.is_empty() %}<tr><td colspan="6" class="muted" style="padding: 18px;">No transactions match.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

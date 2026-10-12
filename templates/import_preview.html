@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/import">Import</a> ›</p>
+    <h1>Check the import</h1>
+    <p class="sub">{{ batch.filename }} · {% if batch.format == "ofx" %}OFX statement{% else %}CSV file{% endif %}. Nothing is saved until you choose Import.</p>
+  </div>
+</div>
+
+<form method="post" action="/import/{{ batch.id }}/commit" hx-post="/import/{{ batch.id }}/table" hx-trigger="change" hx-target="#import-body" hx-swap="innerHTML">
+  <div class="panel">
+    <div class="field" style="max-width: 420px;"><label for="account_id">Account</label>
+      <select id="account_id" name="account_id">
+        {% for a in accounts %}<option value="{{ a.id }}" {% if a.id == account.id %}selected{% endif %}>{{ a.name }}{% if a.is_gaming() %} (gaming){% endif %}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div id="import-body">{{ t|safe }}</div>
+</form>
+{% endblock %}

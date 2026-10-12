@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · {{ pac_name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main style="max-width: 380px; margin-top: 10vh;">
+    <div class="panel">
+      <h1>{{ pac_name }}</h1>
+      <p class="sub">Sign in to see the PAC finances.</p>
+      {% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+      {% if no_users %}
+      <div class="flash err">There are no users yet. On the server, run <code>pac-finances user add NAME --role treasurer</code>.</div>
+      {% endif %}
+      <form method="post" action="/login">
+        <div class="field"><label for="username">Username</label><input type="text" id="username" name="username" autocomplete="username" autofocus required></div>
+        <div class="field"><label for="password">Password</label><input type="password" id="password" name="password" autocomplete="current-password" required></div>
+        <button>Sign in</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>

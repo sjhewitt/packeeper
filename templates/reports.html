@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Reports</h1>
+    <p class="sub">Each report opens as a PDF that you can print, email, or file.</p>
+  </div>
+</div>
+
+<div class="grid two">
+  <form class="panel" method="get" action="/reports/monthly.pdf" target="_blank">
+    <h2>Monthly treasurer's report</h2>
+    <p class="small muted">For each PAC meeting. Bank balances with a check against the bank, budget against actual for the month and the year to date, every transaction in the month, and items to resolve.</p>
+    <div class="field"><label for="month">Month</label>
+      <select id="month" name="month">
+        {% for (value, label) in months %}<option value="{{ value }}" {% if value.as_str() == last_month.as_str() %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <button>Open PDF</button>
+  </form>
+
+  <form class="panel" method="get" action="/reports/annual.pdf" target="_blank">
+    <h2>Annual report for the AGM</h2>
+    <p class="small muted">Opening and closing balance of each fund, budget against actual with variances, bank balances at year end, monthly totals, the gaming grant summary, your notes, and signature lines.</p>
+    <div class="field"><label for="fy-annual">Fiscal year</label>
+      <select id="fy-annual" name="fy">
+        {% for y in years %}{% if y.start_date <= current.start_date %}<option value="{{ y.id }}" {% if y.id == current.id %}selected{% endif %}>{{ y.label }}</option>{% endif %}{% endfor %}
+      </select>
+    </div>
+    <button>Open PDF</button>
+    <p class="small muted">Add notes for the members on the <a href="/budget">budget page</a> under "Fiscal year".</p>
+  </form>
+
+  <form class="panel" method="get" action="/reports/budget.pdf" target="_blank">
+    <h2>Budget proposal</h2>
+    <p class="small muted">Next year's proposed budget beside last year's budget and actuals, with the change for each line and an approval block. Edit the amounts on the <a href="/budget/proposal?base={{ current.id }}">proposal page</a> first.</p>
+    <div class="field"><label for="fy-budget">Budget for</label>
+      <select id="fy-budget" name="fy">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == next_id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <button>Open PDF</button>
+  </form>
+
+  <form class="panel" method="get" action="/reports/gaming.pdf" target="_blank">
+    <h2>Gaming Account Summary</h2>
+    <p class="small muted">A worksheet that follows the lines of the provincial Gaming Account Summary Report, with every disbursement, reimbursement summaries, bank balances, and compliance checks. {% if !has_gaming %}Add a gaming account first.{% endif %}</p>
+    <div class="field"><label for="fy-gaming">Fiscal year</label>
+      <select id="fy-gaming" name="fy">
+        {% for y in years %}{% if y.start_date <= current.start_date %}<option value="{{ y.id }}" {% if y.id == current.id %}selected{% endif %}>{{ y.label }}</option>{% endif %}{% endfor %}
+      </select>
+    </div>
+    <button>Open PDF</button> <a class="small" href="/gaming">Review on screen</a>
+  </form>
+</div>
+{% endblock %}

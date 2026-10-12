@@ -1,0 +1,6 @@
+/target
+
+# Records: the database, receipts, and bank files. Back these up; do not commit them.
+/data
+/demo-data
+*.pdf

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/accounts">Accounts</a> ›</p>
+    <h1>{{ a.name }}</h1>
+    <p class="sub">{{ tx_count }} transaction(s)</p>
+  </div>
+</div>
+<form class="panel" method="post" action="/accounts/{{ a.id }}" style="max-width: 760px;">
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" value="{{ a.name }}" required></div>
+    <div class="field"><label for="kind">Kind</label>
+      <select id="kind" name="kind" {% if tx_count > 0 %}disabled{% endif %}>
+        <option value="general" {% if !a.is_gaming() %}selected{% endif %}>General: any PAC spending</option>
+        <option value="gaming" {% if a.is_gaming() %}selected{% endif %}>BC gaming grant account</option>
+      </select>
+      {% if tx_count > 0 %}<div class="hint">Fixed, because the account has transactions.</div>{% endif %}
+    </div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="institution">Bank</label><input type="text" id="institution" name="institution" value="{{ a.institution }}"></div>
+    <div class="field"><label for="account_number">Account number</label><input type="text" id="account_number" name="account_number" value="{{ a.account_number }}"></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="opening_date">Opening balance date</label><input type="date" id="opening_date" name="opening_date" value="{{ a.opening_date }}" required></div>
+    <div class="field"><label for="opening_balance">Opening balance</label><input type="text" class="amount" id="opening_balance" name="opening_balance" value="{{ a.opening_balance().plain() }}"></div>
+  </div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes">{{ a.notes }}</textarea></div>
+  <label class="check"><input type="checkbox" name="active" {% if a.active %}checked{% endif %}> Account is open</label>
+  {% if a.csv_mapping.is_some() %}<label class="check"><input type="checkbox" name="reset_mapping"> Forget the saved CSV column choices</label>{% endif %}
+  {% if layout.can_edit %}<p><button>Save account</button></p>{% endif %}
+</form>
+{% endblock %}

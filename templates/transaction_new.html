@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/transactions">Transactions</a> ›</p>
+    <h1>Add a transaction</h1>
+    <p class="sub">Use this for a cheque or e-transfer before it shows at the bank. When you import the bank file, the app matches it by amount and date.</p>
+  </div>
+</div>
+
+{% if accounts.is_empty() %}
+<div class="panel"><p>Add a bank account first. <a href="/accounts">Accounts</a></p></div>
+{% else %}
+<form class="panel" method="post" action="/transactions" style="max-width: 760px;">
+  <div class="fields">
+    <div class="field"><label for="account_id">Account</label>
+      <select id="account_id" name="account_id" onchange="filterLines()">
+        {% for a in accounts %}<option value="{{ a.id }}" data-fund="{{ a.kind }}">{{ a.name }}{% if a.is_gaming() %} (gaming){% endif %}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="date">Date</label><input type="date" id="date" name="date" value="{{ today }}" required></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label>Direction</label>
+      <label class="check"><input type="radio" name="direction" value="out" checked> Money out</label>
+      <label class="check"><input type="radio" name="direction" value="in"> Money in</label>
+    </div>
+    <div class="field"><label for="amount">Amount</label><input type="text" class="amount" id="amount" name="amount" placeholder="0.00" required></div>
+  </div>
+  <div class="field"><label for="payee">Paid to / received from</label><input type="text" id="payee" name="payee" required></div>
+  <div class="field"><label for="purpose">Purpose</label><input type="text" id="purpose" name="purpose" placeholder="e.g. Grade 4 field trip bus"></div>
+  <div class="fields">
+    <div class="field"><label for="reference">Cheque or reference number</label><input type="text" id="reference" name="reference"></div>
+    <div class="field"><label for="line_item_id">Line item</label>
+      <select id="line_item_id" name="line_item_id">
+        <option value="">— choose later —</option>
+        {% for li in line_items %}<option value="{{ li.id }}" data-fund="{{ li.fund }}">{{ li.label() }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes"></textarea></div>
+  <div class="field"><label class="check"><input type="checkbox" name="cleared"> Already on a bank statement</label>
+    <div class="hint">Leave this off so the next import can match it. Turn it on only for an item that will never appear in a bank file.</div></div>
+  <button>Add transaction</button>
+</form>
+<script>
+  function filterLines() {
+    var acct = document.getElementById('account_id');
+    var fund = acct.options[acct.selectedIndex].dataset.fund;
+    var sel = document.getElementById('line_item_id');
+    Array.prototype.forEach.call(sel.options, function (o) {
+      if (!o.dataset.fund) return;
+      o.hidden = o.dataset.fund !== fund;
+      if (o.hidden && o.selected) sel.value = '';
+    });
+  }
+  filterLines();
+</script>
+{% endif %}
+{% endblock %}

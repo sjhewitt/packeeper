@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p class="sub">PAC details, accounts, line items, and backups.</p>
+  </div>
+</div>
+
+<div class="grid two">
+  <form class="panel" method="post" action="/settings">
+    <h2>PAC</h2>
+    <div class="field"><label for="pac_name">PAC name</label><input type="text" id="pac_name" name="pac_name" value="{{ s.pac_name }}"></div>
+    <div class="field"><label for="school_name">School</label><input type="text" id="school_name" name="school_name" value="{{ s.school_name }}"></div>
+    <div class="fields">
+      <div class="field"><label for="treasurer_name">Treasurer</label><input type="text" id="treasurer_name" name="treasurer_name" value="{{ s.treasurer_name }}"></div>
+      <div class="field"><label for="chair_name">Chair</label><input type="text" id="chair_name" name="chair_name" value="{{ s.chair_name }}"></div>
+    </div>
+    <div class="field"><label for="fy_start_month">Fiscal year starts in</label>
+      <select id="fy_start_month" name="fy_start_month">
+        {% for (n, name) in months %}<option value="{{ n }}" {% if *n == s.fy_start_month %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      <div class="hint">Check your PAC bylaws. Most BC PACs use July 1 to June 30. This applies to new fiscal years; edit an existing year on the budget page.</div>
+    </div>
+    <h3>BC gaming grant</h3>
+    <div class="fields">
+      <div class="field"><label for="enrolment">Enrolment</label><input type="number" min="0" id="enrolment" name="enrolment" value="{{ s.enrolment }}"><div class="hint">Students at the start of the previous school year.</div></div>
+      <div class="field"><label for="gaming_rate">Rate per student</label><input type="text" class="amount" id="gaming_rate" name="gaming_rate" value="{{ self.rate() }}"></div>
+    </div>
+    <div class="field"><label for="gaming_org_number">Gaming file number</label><input type="text" id="gaming_org_number" name="gaming_org_number" value="{{ s.gaming_org_number }}"><div class="hint">Printed on the Gaming Account Summary worksheet.</div></div>
+    {% if layout.can_edit %}<button>Save settings</button>{% endif %}
+  </form>
+
+  <div>
+    <div class="panel">
+      <h2>Set up</h2>
+      <ul>
+        <li><a href="/accounts">Bank accounts</a> and opening balances</li>
+        <li><a href="/line-items">Budget line items</a></li>
+        <li><a href="/rules">Automatic assignment rules</a></li>
+        <li><a href="/budget">Fiscal years and budgets</a></li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>Data and backups</h2>
+      <p class="small">All records live in one folder:<br><code>{{ data_dir }}</code></p>
+      <p class="small">It holds the database (<code>pac.db</code>), the receipts, and the bank files you imported. To hand over to the next treasurer, give them this folder and the app.</p>
+      <p><a class="button secondary" href="/settings/backup.zip">Download a backup (.zip)</a></p>
+      <p class="small muted">Keep gaming grant records for at least 5 years after the year the money was spent.</p>
+    </div>
+    <div class="panel">
+      <h2>Sign-in</h2>
+      {% if auth %}
+      <p class="small">Sign-in is on. Add or change users on the server with<br><code>pac-finances user add NAME --role treasurer|viewer</code>.</p>
+      {% else %}
+      <p class="small">Sign-in is off: the app runs on this computer only. To share it with the executive, run it on a server with <code>pac-finances serve --auth</code>.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

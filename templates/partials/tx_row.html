@@ -1,0 +1,34 @@
+<tr id="tx-{{ r.tx.id }}" {% if !r.is_categorized() || r.needs_receipt() %}class="flagged"{% endif %}>
+  <td class="nowrap">{{ r.tx.date.format("%b %-d, %Y") }}</td>
+  <td>{{ r.account_name }}{% if r.account_kind == "gaming" %} <span class="tag gaming">gaming</span>{% endif %}</td>
+  <td class="desc">
+    <a href="/transactions/{{ r.tx.id }}">{{ r.tx.display_name() }}</a>
+    {% if !r.tx.purpose.is_empty() %}<span class="muted small"> · {{ r.tx.purpose }}</span>{% endif %}
+    {% if !r.tx.payee.is_empty() && r.tx.payee != r.tx.description %}<span class="bank">{{ r.tx.description }}</span>{% endif %}
+    {% if !r.tx.cleared %}<span class="tag muted" title="Entered by hand; the bank has not shown it yet">not cleared</span>{% endif %}
+  </td>
+  <td>
+    {% if r.is_split() %}
+      <a href="/transactions/{{ r.tx.id }}" class="small">Split: {{ r.line_names() }}</a>
+      {% if !r.is_categorized() %}<span class="tag warn">{{ r.unallocated().abs() }} left</span>{% endif %}
+    {% else if can_edit %}
+      <select class="compact" name="line_item_id" hx-post="/transactions/{{ r.tx.id }}/assign" hx-target="#tx-{{ r.tx.id }}" hx-swap="outerHTML" aria-label="Line item">
+        <option value="">— choose line item —</option>
+        {% for kind in ["income", "expense", "transfer"] %}
+        <optgroup label="{% if *kind == "income" %}Income{% else if *kind == "expense" %}Expenses{% else %}Transfers{% endif %}">
+          {% for li in line_items %}{% if li.fund == r.account_kind && li.kind == *kind &&(li.active || r.is_line(li.id)) %}
+          <option value="{{ li.id }}" {% if r.is_line(li.id) %}selected{% endif %}>{{ li.name }}</option>
+          {% endif %}{% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    {% else %}
+      {% if r.is_categorized() %}{{ r.line_names() }}{% else %}<span class="tag warn">uncategorized</span>{% endif %}
+    {% endif %}
+  </td>
+  <td class="num {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
+  <td class="nowrap">
+    {% if r.receipt_count > 0 %}<a href="/transactions/{{ r.tx.id }}" class="tag good" title="Receipts attached">{{ r.receipt_count }} rcpt</a>
+    {% else if r.needs_receipt() %}<a href="/transactions/{{ r.tx.id }}" class="tag bad" title="Attach a receipt">no rcpt</a>{% endif %}
+  </td>
+</tr>

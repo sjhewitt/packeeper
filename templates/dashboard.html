@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="sub">Fiscal year {{ fy.label }} · {{ fy.period() }}</p>
+  </div>
+  {% if layout.can_edit %}
+  <div class="actions">
+    <a class="button" href="/import">Import bank file</a>
+    <a class="button secondary" href="/transactions/new">Add transaction</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if accounts.is_empty() %}
+<div class="panel">
+  <h2>Get started</h2>
+  <ol>
+    <li><a href="/settings">Enter the PAC name, school, and fiscal year</a>.</li>
+    <li><a href="/accounts">Add your bank accounts</a>: the general account and the gaming account. Enter each opening balance from a bank statement.</li>
+    <li><a href="/line-items">Check the budget line items</a>. Starter lines are already there.</li>
+    <li><a href="/import">Import a CSV or OFX file</a> from Prospera online banking.</li>
+    <li>Assign each transaction to a line item, and attach receipts.</li>
+  </ol>
+</div>
+{% else %}
+
+<div class="grid cards">
+  {% for a in accounts %}
+  <div class="card {% if a.account.is_gaming() %}gaming{% else %}general{% endif %}">
+    <div class="label">{{ a.account.name }} {% if a.account.is_gaming() %}<span class="tag gaming">gaming</span>{% endif %}</div>
+    <div class="value">{{ a.closing }}</div>
+    <div class="note">
+      {% if let Some((d, b)) = a.bank_balance %}
+        {% if a.reconciled() == Some(true) %}<span class="tag good">matches bank</span>{% else %}<span class="tag bad">bank shows {{ b }}</span>{% endif %}
+        on {{ d.format("%b %-d") }}
+      {% else %}no bank balance imported{% endif %}
+      {% if !a.outstanding.is_empty() %}<br>{{ a.outstanding.len() }} not cleared ({{ a.outstanding_total() }}){% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <div class="card alert">
+    <div class="label">Needs attention</div>
+    <div class="note" style="margin-top:6px; font-size:14px; line-height:1.8">
+      <a href="/transactions?uncategorized=1">{{ layout.counts.uncategorized }} with no line item</a><br>
+      <a href="/transactions?missing_receipt=1">{{ layout.counts.missing_receipts }} payments with no receipt</a><br>
+      <a href="/transactions?uncleared=1">{{ layout.counts.uncleared }} not cleared at the bank</a>
+    </div>
+  </div>
+</div>
+
+{% if let Some((label, due)) = gasr_due %}
+<div class="flash err">The Gaming Account Summary Report for {{ label }} is due by {{ due.format("%B %-d, %Y") }}. <a href="/gaming">Prepare it</a>.</div>
+{% endif %}
+
+<div class="grid two">
+  {% for f in funds %}{% if f.has_activity() || f.fund.as_str() == "general" %}
+  <div class="panel">
+    <h2>{{ f.title() }} <span class="muted small">year to date</span></h2>
+    <table>
+      <thead><tr><th></th><th class="num">Budget</th><th class="num">Actual</th><th style="width:30%"></th></tr></thead>
+      <tbody>
+        <tr><td>Income</td><td class="num">{{ f.income_budget() }}</td><td class="num">{{ f.income_ytd() }}</td>
+          <td><div class="bar"><span style="width: {% if f.income_budget().cents() > 0 %}{{ (f.income_ytd().cents() * 100 / f.income_budget().cents()).clamp(0, 100) }}{% else %}0{% endif %}%"></span></div></td></tr>
+        <tr><td>Expenses</td><td class="num">{{ f.expense_budget() }}</td><td class="num">{{ f.expense_ytd() }}</td>
+          <td><div class="bar {% if f.expense_ytd() > f.expense_budget() %}over{% endif %}"><span style="width: {% if f.expense_budget().cents() > 0 %}{{ (f.expense_ytd().cents() * 100 / f.expense_budget().cents()).clamp(0, 100) }}{% else %}0{% endif %}%"></span></div></td></tr>
+        <tr class="total"><td>Balance now</td><td></td><td class="num">{{ f.closing }}</td><td class="muted small">started year at {{ f.year_opening }}</td></tr>
+      </tbody>
+    </table>
+    <p class="small"><a href="/budget">Budget detail</a></p>
+  </div>
+  {% endif %}{% endfor %}
+</div>
+
+{% if has_gaming && !grants.is_empty() %}
+<div class="panel">
+  <h2>Gaming grant spending deadlines</h2>
+  <p class="muted small">PAC grants must be spent within 24 months of receipt. The current balance is assigned to the newest grants first.</p>
+  <table>
+    <thead><tr><th>Received</th><th class="num">Amount</th><th>Spend by</th><th class="num">Still unspent</th></tr></thead>
+    <tbody>
+    {% for g in grants %}
+      <tr><td>{{ g.received }}</td><td class="num">{{ g.amount }}</td><td>{{ g.spend_by.format("%B %-d, %Y") }}</td><td class="num">{{ g.unspent }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Recent transactions</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Line item</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+    {% for r in recent %}
+      <tr {% if !r.is_categorized() %}class="flagged"{% endif %}>
+        <td class="nowrap">{{ r.tx.date.format("%b %-d") }}</td>
+        <td>{{ r.account_name }}</td>
+        <td class="desc"><a href="/transactions/{{ r.tx.id }}">{{ r.tx.display_name() }}</a></td>
+        <td>{% if r.is_categorized() %}{{ r.line_names() }}{% else %}<span class="tag warn">uncategorized</span>{% endif %}</td>
+        <td class="num {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="small"><a href="/transactions">All transactions</a></p>
+</div>
+{% endif %}
+{% endblock %}
