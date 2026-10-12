@@ -4,6 +4,7 @@ mod accounts;
 mod auth;
 mod budget;
 mod dashboard;
+mod events;
 mod import;
 mod reports;
 mod settings;
@@ -74,6 +75,9 @@ pub fn router(state: AppState) -> Router {
         .route("/reports/budget.pdf", get(reports::budget_pdf))
         .route("/reports/gaming.pdf", get(reports::gaming_pdf))
         .route("/gaming", get(reports::gaming_page))
+        .route("/gaming/events", get(events::list).post(events::create))
+        .route("/gaming/events/{id}", get(events::edit).post(events::update))
+        .route("/gaming/events/{id}/delete", post(events::delete))
         .route("/settings", get(settings::page).post(settings::save))
         .route("/settings/backup.zip", get(settings::backup))
         .route("/accounts", get(accounts::list).post(accounts::create))

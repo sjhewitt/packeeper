@@ -107,9 +107,47 @@ pub struct LineItem {
     pub active: bool,
 }
 
+/// Where a gaming line item goes on the Gaming Account Summary Report.
+/// The code is stored in `line_items.gasr_line`. Gaming expense lines with no
+/// code are ordinary disbursements (lines 30 to 45).
+pub const GASR_INCOME_LINES: &[(&str, &str)] = &[
+    ("2", "Line 2: Community Gaming Grant"),
+    ("3", "Line 3: PAC/DPAC grant"),
+    ("5", "Line 5: other gaming revenue (pre-approved transfer or repayment)"),
+    ("6", "Lines 6 to 13: licensed gaming event revenue"),
+    ("14", "Line 14: GST rebate, interest, or sale of assets bought with gaming funds"),
+    ("15", "Lines 15 to 17: gaming fund donation from another organization"),
+];
+pub const GASR_EXPENSE_LINES: &[(&str, &str)] = &[
+    ("prize", "Lines 19 to 21: prize costs for a licensed gaming event"),
+    ("event_expense", "Lines 23 to 25: expenses for a licensed gaming event"),
+];
+
+/// The GASR code if it suits a gaming line item of this kind, else None.
+pub fn valid_gasr_line(fund: &str, kind: &str, code: Option<&str>) -> Option<String> {
+    let code = code?.trim();
+    let lines = match (fund, kind) {
+        ("gaming", "income") => GASR_INCOME_LINES,
+        ("gaming", "expense") => GASR_EXPENSE_LINES,
+        _ => return None,
+    };
+    lines.iter().any(|(c, _)| *c == code).then(|| code.to_string())
+}
+
 impl LineItem {
     pub fn fund(&self) -> Fund {
         Fund::parse(&self.fund).unwrap_or(Fund::General)
+    }
+
+    /// The GASR line label, for line item lists.
+    pub fn gasr_label(&self) -> Option<&'static str> {
+        let code = self.gasr_line.as_deref()?;
+        GASR_INCOME_LINES.iter().chain(GASR_EXPENSE_LINES).find(|(c, _)| *c == code).map(|(_, l)| *l)
+    }
+
+    /// True when the selected GASR line is `code`, for form selects.
+    pub fn has_gasr(&self, code: &&str) -> bool {
+        self.gasr_line.as_deref() == Some(*code)
     }
 
     /// "Gaming: Field trips" style label for selects that mix funds.
@@ -141,6 +179,7 @@ pub struct Transaction {
     pub reimbursed_by_id: Option<i64>,
     pub notes: String,
     pub created_at: String,
+    pub gaming_event_id: Option<i64>,
 }
 
 impl Transaction {
@@ -155,6 +194,52 @@ impl Transaction {
     /// The payee if the treasurer set one, else the bank description.
     pub fn display_name(&self) -> &str {
         if self.payee.is_empty() { &self.description } else { &self.payee }
+    }
+}
+
+/// A licensed gaming event, such as a ticket raffle or a bingo.
+#[derive(Debug, Clone, FromRow)]
+pub struct GamingEvent {
+    pub id: i64,
+    pub name: String,
+    pub licence_number: String,
+    /// A, B, C, or D.
+    pub licence_class: String,
+    /// bingo, ticket_raffle, or other.
+    pub event_type: String,
+    /// What an "other" event is, such as "wheel of fortune".
+    pub other_type: String,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub notes: String,
+    #[allow(dead_code)]
+    pub created_at: String,
+}
+
+pub const EVENT_TYPES: &[(&str, &str)] = &[("ticket_raffle", "Ticket raffle"), ("bingo", "Bingo"), ("other", "Other")];
+pub const LICENCE_CLASSES: &[&str] = &["A", "B", "C", "D"];
+
+impl GamingEvent {
+    pub fn type_label(&self) -> String {
+        match self.event_type.as_str() {
+            "bingo" => "Bingo".into(),
+            "ticket_raffle" => "Ticket raffle".into(),
+            _ if !self.other_type.is_empty() => self.other_type.clone(),
+            _ => "Other".into(),
+        }
+    }
+
+    /// "Spring raffle (licence 123456)"
+    pub fn label(&self) -> String {
+        format!("{} (licence {})", self.name, self.licence_number)
+    }
+
+    pub fn is_type(&self, t: &&str) -> bool {
+        self.event_type == *t
+    }
+
+    pub fn is_class(&self, c: &&str) -> bool {
+        self.licence_class == *c
     }
 }
 

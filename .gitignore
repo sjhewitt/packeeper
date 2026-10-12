@@ -4,3 +4,9 @@
 /data
 /demo-data
 *.pdf
+# Any data folder made in the project, whatever its name.
+/*/pac.db*
+/*/secret.key
+/*/receipts/
+/*/imports/
+/*/backups/

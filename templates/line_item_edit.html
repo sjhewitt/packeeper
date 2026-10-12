@@ -20,13 +20,17 @@
     </div>
     <div class="field"><label for="sort_order">Order</label><input type="number" id="sort_order" name="sort_order" value="{{ li.sort_order }}"></div>
   </div>
-  {% if li.fund == "gaming" && li.kind == "income" %}
+  {% if !gasr_lines.is_empty() %}
   <div class="field"><label for="gasr_line">Gaming report line</label>
     <select id="gasr_line" name="gasr_line">
-      <option value="">— (counts as "other", which is not allowed)</option>
-      <option value="3" {% if li.gasr_line.as_deref() == Some("3") %}selected{% endif %}>Line 3: PAC/DPAC grant</option>
-      <option value="14" {% if li.gasr_line.as_deref() == Some("14") %}selected{% endif %}>Line 14: GST rebate, interest, asset sales</option>
+      {% if li.kind == "income" %}
+      <option value="">— none (counts as money that may not go into the gaming account)</option>
+      {% else %}
+      <option value="">Lines 30 to 45: a gaming fund disbursement</option>
+      {% endif %}
+      {% for (code, label) in gasr_lines %}<option value="{{ code }}" {% if li.has_gasr(code) %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
+    <div class="hint">Licensed gaming event lines need the event's licence on each transaction.</div>
   </div>
   {% endif %}
   <div class="field"><label for="description">Description</label><input type="text" id="description" name="description" value="{{ li.description }}"></div>

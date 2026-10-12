@@ -168,7 +168,7 @@ pub async fn gaming_page(
     };
     let g = gaming::build(pool, &fy).await?;
     render(GamingPage {
-        layout: Layout::new(&state, &user, "gaming", "Gaming grant", &q.flash).await?,
+        layout: Layout::new(&state, &user, "gaming", "Gaming account", &q.flash).await?,
         years: fiscal::list(pool).await?,
         has_gaming: crate::db::accounts(pool).await?.iter().any(|a| a.is_gaming()),
         g,

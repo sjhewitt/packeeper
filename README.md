@@ -22,6 +22,7 @@ It is one program and one data folder. It runs on the treasurer's computer. It c
   - It builds reimbursement summaries for transfers to the general account, and checks that they match the transfer exactly and are in the same fiscal year.
   - It shows the 24-month spending deadline for each grant.
   - It shows the date the report is due.
+- **Records licensed gaming events** (ticket raffles, bingo, and others) with the licence number, class, and dates. Event revenue goes on lines 6 to 13 of the Gaming Account Summary Report. Prizes and event expenses go on lines 19 to 26. The app warns when a finished event cost more than it raised.
 - **Makes PDF reports:**
   - **Monthly treasurer's report:** bank balances with a check against the bank, budget against actual for the month and year to date, every transaction, and items to resolve.
   - **Annual report for the AGM:** fund balances, budget against actual with variances, monthly totals, the gaming summary, the treasurer's notes, and signature lines.
@@ -129,7 +130,27 @@ The checks follow the 2026 *PAC and DPAC Guidelines* and *Conditions for a PAC/D
 - [Conditions for a PAC/DPAC Grant](https://www2.gov.bc.ca/assets/gov/sports-recreation-arts-and-culture/gambling/grants/cond-pac.pdf)
 - [Gaming Account Summary Report form](https://www2.gov.bc.ca/assets/gov/sports-recreation-arts-and-culture/gambling/grants/form-acct-summary-rpt.pdf)
 
-The app does not decide whether an expense is eligible. The **Gaming grant** page lists the eligible and ineligible uses as a reminder.
+The app does not decide whether an expense is eligible. The **Gaming** page lists the eligible and ineligible uses as a reminder.
+
+### Gaming report lines
+
+Each gaming line item has a *gaming report line* setting (**Settings → Line items**):
+
+| Setting | Form lines | Starter line item |
+|---|---|---|
+| PAC/DPAC grant | 3 | PAC gaming grant |
+| Community Gaming Grant | 2 | — |
+| Other gaming revenue (pre-approved transfer or repayment) | 5 | — |
+| Licensed gaming event revenue | 6 to 13, one line per licence | Licensed gaming event revenue |
+| GST rebate, interest, or sale of assets | 14 | Interest and GST rebates |
+| Gaming fund donation from another organization | 15 to 17, one line per organization | — |
+| Prize costs for a licensed event | 19 to 22, split by bingo, ticket raffle, and other | Licensed gaming event prizes |
+| Expenses for a licensed event | 23 to 26, split the same way | Licensed gaming event expenses |
+| None (a gaming expense) | 30 to 45, itemized | Field trips, and so on |
+
+Gaming income with no setting is money that may not go into the gaming account. The report puts it on line 5 and marks it as a problem.
+
+To record a licensed event, add it under **Gaming → Licensed gaming events**. Then open each deposit, prize, or expense in the gaming account and choose the event. Lines 4 and 29 (Capital Project Grants) are not used by PACs.
 
 ## Development
 

@@ -16,7 +16,7 @@ use super::{
 use crate::db;
 use crate::fiscal;
 use crate::ledger::{self, Filter, TxRow};
-use crate::models::{Account, Allocation, Attachment, FiscalYear, LineItem, Transaction};
+use crate::models::{Account, Allocation, Attachment, FiscalYear, GamingEvent, LineItem, Transaction};
 use crate::money::{self, Money};
 
 #[derive(Debug, Default, Deserialize)]
@@ -176,6 +176,14 @@ struct DetailPage {
     reimbursed_total: Money,
     /// For a general expense: the gaming transfer that repaid it.
     reimbursed_by: Option<Transaction>,
+    /// For a gaming transaction: the licensed gaming events it can belong to.
+    events: Vec<GamingEvent>,
+}
+
+impl DetailPage {
+    fn is_event(&self, id: &i64) -> bool {
+        self.r.tx.gaming_event_id == Some(*id)
+    }
 }
 
 pub async fn detail(
@@ -229,8 +237,10 @@ pub async fn detail(
     };
     let rule_pattern = suggest_pattern(&r.tx.description);
     let title = r.tx.display_name().to_string();
+    let events = if account.is_gaming() { db::gaming_events(pool).await? } else { Vec::new() };
     render(DetailPage {
         layout: Layout::new(&state, &user, "transactions", title, &flash).await?,
+        events,
         line_items: items.into_iter().filter(|li| li.fund() == account.fund()).collect(),
         attachments: ledger::attachments(pool, id).await?,
         r,
@@ -260,6 +270,8 @@ pub struct UpdateForm {
     purpose: String,
     reference: String,
     notes: String,
+    /// Only for gaming-account transactions.
+    gaming_event_id: Option<String>,
     // Only for manual entries:
     date: Option<String>,
     description: Option<String>,
@@ -277,14 +289,23 @@ pub async fn update(
     let pool = &state.pool;
     let tx = ledger::get(pool, id).await?.ok_or(AppError::NotFound)?;
     let back = format!("/transactions/{id}");
-    sqlx::query("UPDATE transactions SET payee = ?, purpose = ?, reference = ?, notes = ? WHERE id = ?")
-        .bind(f.payee.trim())
-        .bind(f.purpose.trim())
-        .bind(f.reference.trim())
-        .bind(f.notes.trim())
-        .bind(id)
-        .execute(pool)
-        .await?;
+    let account = db::account(pool, tx.account_id).await?.ok_or(AppError::NotFound)?;
+    // Licensed gaming event money moves through the gaming account only.
+    let event_id = if account.is_gaming() { opt_id(&f.gaming_event_id) } else { None };
+    if let Some(eid) = event_id {
+        db::gaming_event(pool, eid).await?.ok_or(AppError::NotFound)?;
+    }
+    sqlx::query(
+        "UPDATE transactions SET payee = ?, purpose = ?, reference = ?, notes = ?, gaming_event_id = ? WHERE id = ?",
+    )
+    .bind(f.payee.trim())
+    .bind(f.purpose.trim())
+    .bind(f.reference.trim())
+    .bind(f.notes.trim())
+    .bind(event_id)
+    .bind(id)
+    .execute(pool)
+    .await?;
     if tx.source == "manual" {
         let Some(date) = f.date.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()) else {
             return Ok(redirect_err(&back, "Enter a valid date."));
@@ -300,7 +321,6 @@ pub async fn update(
         if amount != tx.amount_cents && allocated != 0 {
             // Keep a single allocation in step with the new amount; clear splits.
             let allocs = ledger::allocations(pool, id).await?;
-            let account = db::account(pool, tx.account_id).await?.ok_or(AppError::NotFound)?;
             let mut moved = tx.clone();
             moved.amount_cents = amount;
             let parts =
@@ -378,6 +398,7 @@ struct NewPage {
     layout: Layout,
     accounts: Vec<Account>,
     line_items: Vec<LineItem>,
+    events: Vec<GamingEvent>,
     today: NaiveDate,
 }
 
@@ -388,6 +409,7 @@ pub async fn new_form(State(state): State<AppState>, user: UserExt, Query(flash)
         layout: Layout::new(&state, &user, "transactions", "Add transaction", &flash).await?,
         accounts: db::accounts(pool).await?.into_iter().filter(|a| a.active).collect(),
         line_items: db::line_items(pool).await?.into_iter().filter(|li| li.active).collect(),
+        events: db::gaming_events(pool).await?,
         today: chrono::Local::now().date_naive(),
     })
 }
@@ -402,6 +424,7 @@ pub struct NewForm {
     purpose: String,
     reference: String,
     line_item_id: Option<String>,
+    gaming_event_id: Option<String>,
     notes: String,
     cleared: Option<String>,
 }
@@ -425,8 +448,9 @@ pub async fn create(State(state): State<AppState>, user: UserExt, Form(f): Form<
         return Ok(redirect_err(back, "Enter who was paid or who paid."));
     }
     let id = sqlx::query(
-        "INSERT INTO transactions (account_id, date, description, payee, amount_cents, reference, purpose, source, cleared, notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)",
+        "INSERT INTO transactions (account_id, date, description, payee, amount_cents, reference, purpose, source, cleared,
+           notes, gaming_event_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)",
     )
     .bind(account.id)
     .bind(date)
@@ -437,6 +461,7 @@ pub async fn create(State(state): State<AppState>, user: UserExt, Form(f): Form<
     .bind(f.purpose.trim())
     .bind(f.cleared.is_some())
     .bind(f.notes.trim())
+    .bind(if account.is_gaming() { opt_id(&f.gaming_event_id) } else { None })
     .bind(db::now())
     .execute(pool)
     .await?

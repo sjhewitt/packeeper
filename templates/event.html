@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/gaming">Gaming</a> › <a href="/gaming/events">Licensed gaming events</a> ›</p>
+    <h1>{{ e.name }}</h1>
+    <p class="sub">Licence {{ e.licence_number }} · Class {{ e.licence_class }} · {{ e.type_label() }} · {{ e.start_date.format("%B %-d, %Y") }} to {{ e.end_date.format("%B %-d, %Y") }}</p>
+  </div>
+  {% if layout.can_edit && rows.is_empty() %}
+  <div class="actions">
+    <form method="post" action="/gaming/events/{{ e.id }}/delete" onsubmit="return confirm('Delete this event?')"><button class="danger small">Delete</button></form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid cards">
+  <div class="card gaming"><div class="label">Revenue</div><div class="value">{{ totals.revenue }}</div></div>
+  <div class="card"><div class="label">Prizes</div><div class="value">{{ totals.prizes }}</div></div>
+  <div class="card"><div class="label">Expenses</div><div class="value">{{ totals.expenses }}</div></div>
+  <div class="card {% if totals.net().is_negative() %}alert{% else %}general{% endif %}"><div class="label">Net proceeds</div><div class="value">{{ totals.net() }}</div></div>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Transactions</h2></div>
+  <table>
+    <thead><tr><th>Date</th><th>Description</th><th>Line item</th><th class="num">Amount</th><th>Receipt</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="nowrap">{{ r.tx.date.format("%b %-d, %Y") }}</td>
+        <td class="desc"><a href="/transactions/{{ r.tx.id }}">{{ r.tx.display_name() }}</a>{% if !r.tx.purpose.is_empty() %}<span class="muted small"> · {{ r.tx.purpose }}</span>{% endif %}</td>
+        <td>{% if r.is_categorized() %}{{ r.line_names() }}{% else %}<span class="tag warn">uncategorized</span>{% endif %}</td>
+        <td class="num {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
+        <td>{% if r.receipt_count > 0 %}<span class="tag good">rcpt</span>{% else if r.needs_receipt() %}<span class="tag bad">no rcpt</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if rows.is_empty() %}<tr><td colspan="5" class="muted" style="padding: 18px;">No transactions yet. Open a gaming-account transaction and choose this event under "Licensed gaming event".</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<form class="panel" method="post" action="/gaming/events/{{ e.id }}" style="max-width: 760px;">
+  <h2>Details</h2>
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" value="{{ e.name }}" required></div>
+    <div class="field"><label for="licence_number">Licence number</label><input type="text" id="licence_number" name="licence_number" value="{{ e.licence_number }}" required></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="licence_class">Licence class</label>
+      <select id="licence_class" name="licence_class">
+        {% for c in classes %}<option value="{{ c }}" {% if e.is_class(c) %}selected{% endif %}>Class {{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="event_type">Kind of event</label>
+      <select id="event_type" name="event_type" onchange="document.getElementById('other-type').hidden = this.value !== 'other'">
+        {% for (code, label) in event_types %}<option value="{{ code }}" {% if e.is_type(code) %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field" id="other-type" {% if e.event_type != "other" %}hidden{% endif %}><label for="other_type">What kind?</label><input type="text" id="other_type" name="other_type" value="{{ e.other_type }}"></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="start_date">Licence starts</label><input type="date" id="start_date" name="start_date" value="{{ e.start_date }}" required></div>
+    <div class="field"><label for="end_date">Licence ends</label><input type="date" id="end_date" name="end_date" value="{{ e.end_date }}" required></div>
+  </div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes">{{ e.notes }}</textarea></div>
+  {% if layout.can_edit %}<button>Save event</button>{% endif %}
+</form>
+{% endblock %}

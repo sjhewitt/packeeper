@@ -158,17 +158,39 @@ const DEFAULT_LINE_ITEMS: &[(&str, &str, &str, Option<&str>)] = &[
     ("gaming", "transfer", "Transfer between gaming accounts", None),
 ];
 
-/// Seeds line items once, when the database has none.
+/// Line items added in seed version 2, for licensed gaming events.
+const EVENT_LINE_ITEMS: &[(&str, &str, &str, Option<&str>)] = &[
+    ("gaming", "income", "Licensed gaming event revenue", Some("6")),
+    ("gaming", "expense", "Licensed gaming event prizes", Some("prize")),
+    ("gaming", "expense", "Licensed gaming event expenses", Some("event_expense")),
+];
+
+const SEED_VERSION: i64 = 2;
+
+/// Seeds the starter line items into a new database. An older database gets
+/// only the line items added since its seed version, once.
 pub async fn seed(pool: &SqlitePool) -> anyhow::Result<()> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM line_items").fetch_one(pool).await?;
-    if count > 0 {
-        return Ok(());
-    }
-    for (i, (fund, kind, name, gasr_line)) in DEFAULT_LINE_ITEMS.iter().enumerate() {
+    let version: i64 = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'seed_version'")
+        .fetch_optional(pool)
+        .await?
+        .and_then(|v: String| v.parse().ok())
+        .unwrap_or(1);
+    let items: Vec<_> = if count == 0 {
+        DEFAULT_LINE_ITEMS.iter().chain(EVENT_LINE_ITEMS).collect()
+    } else if version < 2 {
+        EVENT_LINE_ITEMS.iter().collect()
+    } else {
+        Vec::new()
+    };
+    let next_sort: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), 0) FROM line_items").fetch_one(pool).await?;
+    for (i, (fund, kind, name, gasr_line)) in items.into_iter().enumerate() {
         // Bank statements are the record for bank charges; other expenses need a receipt.
         let receipt_required = *kind == "expense" && !name.starts_with("Bank");
+        // OR IGNORE: keep a line item that the treasurer already made with this name.
         sqlx::query(
-            "INSERT INTO line_items (name, fund, kind, gasr_line, receipt_required, sort_order)
+            "INSERT OR IGNORE INTO line_items (name, fund, kind, gasr_line, receipt_required, sort_order)
              VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(name)
@@ -176,11 +198,23 @@ pub async fn seed(pool: &SqlitePool) -> anyhow::Result<()> {
         .bind(kind)
         .bind(gasr_line)
         .bind(receipt_required)
-        .bind((i as i64 + 1) * 10)
+        .bind(next_sort + (i as i64 + 1) * 10)
         .execute(pool)
         .await?;
     }
+    sqlx::query("INSERT INTO settings (key, value) VALUES ('seed_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+        .bind(SEED_VERSION.to_string())
+        .execute(pool)
+        .await?;
     Ok(())
+}
+
+pub async fn gaming_events(pool: &SqlitePool) -> anyhow::Result<Vec<crate::models::GamingEvent>> {
+    Ok(sqlx::query_as("SELECT * FROM gaming_events ORDER BY start_date DESC, id DESC").fetch_all(pool).await?)
+}
+
+pub async fn gaming_event(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<crate::models::GamingEvent>> {
+    Ok(sqlx::query_as("SELECT * FROM gaming_events WHERE id = ?").bind(id).fetch_optional(pool).await?)
 }
 
 pub async fn accounts(pool: &SqlitePool) -> anyhow::Result<Vec<Account>> {

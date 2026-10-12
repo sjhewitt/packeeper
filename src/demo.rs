@@ -25,6 +25,7 @@ struct Tx<'a> {
     reference: &'a str,
     receipt: bool,
     cleared: Option<bool>,
+    event: Option<i64>,
 }
 
 impl Demo<'_> {
@@ -53,8 +54,9 @@ impl Demo<'_> {
         let cents = (amount * 100.0).round() as i64;
         let manual = o.cleared.is_some();
         let id = sqlx::query(
-            "INSERT INTO transactions (account_id, date, description, payee, amount_cents, reference, purpose, source, bank_ref, cleared, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO transactions (account_id, date, description, payee, amount_cents, reference, purpose, source, bank_ref,
+               cleared, gaming_event_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(account)
         .bind(d(date))
@@ -66,6 +68,7 @@ impl Demo<'_> {
         .bind(if manual { "manual" } else { "import" })
         .bind(if manual { None } else { Some(format!("demo:{}", self.seq)) })
         .bind(o.cleared.unwrap_or(true))
+        .bind(o.event)
         .bind(db::now())
         .execute(self.pool)
         .await?
@@ -220,6 +223,9 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
         ("Graduation and student recognition", 600.0),
         ("BCCPAC membership and conference", 75.0),
         ("Emergency supplies", 500.0),
+        ("Licensed gaming event revenue", 2000.0),
+        ("Licensed gaming event prizes", 600.0),
+        ("Licensed gaming event expenses", 150.0),
     ];
     demo.budget(last.id, "general", general_budget).await?;
     demo.budget(last.id, "gaming", gaming_budget).await?;
@@ -591,6 +597,54 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
             .execute(pool)
             .await?;
     }
+    // A licensed ticket raffle: revenue in, a prize and a printing cost out.
+    let raffle = sqlx::query(
+        "INSERT INTO gaming_events (name, licence_number, licence_class, event_type, start_date, end_date, notes, created_at)
+         VALUES ('Spring raffle', 'D000000', 'D', 'ticket_raffle', '2026-04-01', '2026-05-15', 'Draw at the spring carnival.', ?)",
+    )
+    .bind(db::now())
+    .execute(pool)
+    .await?
+    .last_insert_rowid();
+    let ev = |payee, purpose, reference, receipt| Tx {
+        payee,
+        purpose,
+        reference,
+        receipt,
+        event: Some(raffle),
+        ..Default::default()
+    };
+    demo.tx(
+        gm,
+        "gaming",
+        "2026-03-25",
+        "CHQ#000111",
+        -85.50,
+        &[("Licensed gaming event expenses", -85.50)],
+        ev("Print Shop", "Raffle tickets", "111", true),
+    )
+    .await?;
+    demo.tx(
+        gm,
+        "gaming",
+        "2026-05-19",
+        "DEPOSIT RAFFLE PROCEEDS",
+        1850.00,
+        &[("Licensed gaming event revenue", 1850.00)],
+        ev("Spring raffle ticket sales", "", "", false),
+    )
+    .await?;
+    demo.tx(
+        gm,
+        "gaming",
+        "2026-05-20",
+        "CHQ#000112",
+        -600.00,
+        &[("Licensed gaming event prizes", -600.00)],
+        ev("Raffle winner", "Grand prize: bicycle", "112", true),
+    )
+    .await?;
+
     // A cheque written but not cashed yet.
     demo.tx(
         gm,
@@ -605,6 +659,7 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
             reference: "110",
             receipt: true,
             cleared: Some(false),
+            event: None,
         },
     )
     .await?;

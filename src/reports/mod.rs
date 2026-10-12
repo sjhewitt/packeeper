@@ -432,8 +432,13 @@ mod tests {
         (pool, dir)
     }
 
-    fn rand_suffix() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    /// Unique per test. The clock alone is not enough: tests run in parallel,
+    /// and on macOS two can read the same clock value.
+    fn rand_suffix() -> String {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        format!("{t}-{n}")
     }
 
     fn d(s: &str) -> NaiveDate {
@@ -452,7 +457,8 @@ mod tests {
         }
         assert_eq!(year[0].year_opening, Money(841237));
         assert_eq!(year[0].closing, Money(1041535));
-        assert_eq!(year[1].closing, Money(548496));
+        // 5,484.96 from grants and interest, plus the raffle: 1,850.00 - 600.00 - 85.50.
+        assert_eq!(year[1].closing, Money(664946));
 
         // Every month.
         for m in fiscal::months(fy.start_date, fy.end_date) {
@@ -463,20 +469,94 @@ mod tests {
 
         // The gaming report agrees with the bank and finds no problems.
         let g = gaming::build(&pool, &fy).await.unwrap();
-        assert_eq!(g.closing, g.accounts_total);
-        assert_eq!(g.closing, Money(548496));
+        assert_eq!(g.closing(), g.accounts_total);
+        assert_eq!(g.closing(), Money(664946));
         assert_eq!(g.problems(), 0, "{:?}", g.checks);
         assert_eq!(
             g.disbursements.iter().find(|x| !x.reimbursements.is_empty()).unwrap().reimbursement_total(),
             Money(50000)
         );
 
+        // The licensed raffle fills lines 6 to 13 and Section 4, not the disbursements.
+        assert_eq!(g.events.len(), 1);
+        let raffle = &g.events[0];
+        assert_eq!(raffle.amount, Money(185000));
+        assert_eq!(raffle.event.as_ref().unwrap().licence_number, "D000000");
+        assert_eq!((raffle.from, raffle.to), (d("2026-04-01"), d("2026-05-15")));
+        assert_eq!(g.prizes.ticket_raffle, Money(60000));
+        assert_eq!(g.event_expenses.ticket_raffle, Money(8550));
+        assert_eq!(g.net_proceeds(), g.total_revenue() - Money(68550));
+        assert!(g.disbursements.iter().all(|x| x.tx.reference != "111" && x.tx.reference != "112"));
+        assert_eq!(g.event_costs.len(), 2);
+
+        // Raffle money is newer than the grant, so it is not counted as unspent grant.
+        assert_eq!(g.grants.len(), 1);
+        assert_eq!(g.grants[0].unspent, Money(664946 - 240 - 185000 - 287 - 321));
+
         // Next year's report starts where this one ends.
         let next = fiscal::next(&pool, &fy).await.unwrap();
         let g2 = gaming::build(&pool, &next).await.unwrap();
-        assert_eq!(g2.opening, g.closing);
+        assert_eq!(g2.opening, g.closing());
         // The uncashed cheque is not on the bank-basis report.
         assert_eq!(g2.outstanding.len(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn gaming_revenue_lines_and_checks() {
+        let (pool, dir) = demo_db().await;
+        let gaming_account: i64 =
+            sqlx::query_scalar("SELECT id FROM accounts WHERE kind = 'gaming'").fetch_one(&pool).await.unwrap();
+        let line = |name: &'static str, gasr: Option<&'static str>| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query("INSERT INTO line_items (name, fund, kind, gasr_line) VALUES (?, 'gaming', 'income', ?)")
+                    .bind(name)
+                    .bind(gasr)
+                    .execute(&pool)
+                    .await
+                    .unwrap()
+                    .last_insert_rowid()
+            }
+        };
+        let donation = line("Gaming donations", Some("15")).await;
+        let wrong = line("Moved from general", None).await;
+        for (date, payee, cents, li) in [
+            ("2026-02-02", "Lions Club", 25000, donation),
+            ("2026-03-03", "Lions Club", 5000, donation),
+            ("2026-04-04", "General account", 10000, wrong),
+        ] {
+            let id = sqlx::query(
+                "INSERT INTO transactions (account_id, date, description, payee, amount_cents, source, created_at)
+                 VALUES (?, ?, 'DEPOSIT', ?, ?, 'import', '')",
+            )
+            .bind(gaming_account)
+            .bind(d(date))
+            .bind(payee)
+            .bind(cents)
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+            sqlx::query("INSERT INTO allocations (transaction_id, line_item_id, amount_cents) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(li)
+                .bind(cents)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let fy = fiscal::ensure(&pool, d("2025-07-01")).await.unwrap();
+        let g = gaming::build(&pool, &fy).await.unwrap();
+        // Donations from one organization share a line.
+        assert_eq!(g.donations.len(), 1);
+        assert_eq!(g.donations[0].name, "Lions Club");
+        assert_eq!(g.donations[0].amount, Money(30000));
+        // Money from the general account goes on line 5 and is a problem.
+        assert_eq!(g.not_allowed, Money(10000));
+        assert_eq!(g.problems(), 1, "{:?}", g.checks);
+        // The report still agrees with the bank.
+        assert_eq!(g.closing(), g.accounts_total);
         let _ = std::fs::remove_dir_all(dir);
     }
 

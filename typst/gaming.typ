@@ -3,9 +3,9 @@
 #show: report.with(title: "Gaming Account Summary", subtitle: "Fiscal year ending " + data.year_end)
 
 #text(fill: muted)[
-  Worksheet for the BC Community Gaming Grant _Gaming Account Summary Report_.
+  Worksheet for the BC _Gaming Account Summary Report_.
   Copy these figures onto the official form.
-  #if data.file_number != "" [Gaming file number: #data.file_number.]
+  #if data.file_number != "" [L&G file number: #data.file_number.]
   Due by #data.due_date.
 ]
 
@@ -13,16 +13,56 @@
   #callout(c.level, c.message)
 ]
 
-= Sections 2 to 6: summary
+= Section 3: gaming revenue
 
 #fin-table(
-  columns: (0.5fr, 3.2fr, 1fr),
+  columns: (0.55fr, 3.2fr, 1fr),
   align: "llr",
   header: ("Line", "Description", "Amount"),
-  rows: data.lines,
+  rows: data.revenue,
 )
 
-= Section 5: disbursements (lines 30 to 45)
+== Lines 6 to 13: gross revenue from gaming event licences
+
+#fin-table(
+  columns: (0.45fr, 1fr, 1.5fr, 0.85fr, 0.85fr, 0.9fr),
+  align: "lllllr",
+  header: ("Line", "Licence number", "Licence type", "From", "To", "Amount"),
+  rows: data.licences,
+  size: 9pt,
+)
+#text(8.5pt, fill: muted)[The reporting period is the licensed activity that falls within this fiscal year. Report all revenue received in the year.]
+
+= Section 4: prize costs and expenses for licensed gaming events
+
+#fin-table(
+  columns: (0.55fr, 3.2fr, 1fr),
+  align: "llr",
+  header: ("Line", "Description", "Amount"),
+  rows: data.costs,
+)
+
+#if data.event_costs.len() > 0 [
+  == Payments behind lines 19 to 26
+  #fin-table(
+    columns: (0.85fr, 0.75fr, 1.7fr, 1fr, 0.75fr, 0.9fr),
+    align: "lllllr",
+    header: ("Date", "Ref #", "Paid to", "Licence", "Kind", "Amount"),
+    rows: data.event_costs,
+    size: 8.5pt,
+  )
+]
+
+= Sections 2, 5, and 6: balances
+
+#fin-table(
+  columns: (0.55fr, 3.2fr, 1fr),
+  align: "llr",
+  header: ("Line", "Description", "Amount"),
+  rows: data.proceeds,
+)
+
+= Section 5: gaming fund disbursements (lines 30 to 45)
 
 #if data.disbursements.len() == 0 [
   #text(fill: muted)[No disbursements in this fiscal year.]
@@ -59,7 +99,7 @@
 = Deposits
 
 #fin-table(
-  columns: (0.85fr, 2.6fr, 0.5fr, 1fr),
+  columns: (0.85fr, 2.6fr, 0.7fr, 1fr),
   align: "llcr",
   header: ("Date", "Description", "Line", "Amount"),
   rows: data.deposits,
@@ -68,7 +108,7 @@
 
 #if data.grants.len() > 0 [
   = Grant spending deadlines
-  #text(9pt, fill: muted)[PAC grants must be spent within 24 months of receipt. The year-end balance is assigned to the newest grants first.]
+  #text(9pt, fill: muted)[PAC grants must be spent within 24 months of receipt. The year-end balance is assigned to the newest money in first.]
   #fin-table(
     columns: (1fr, 1fr, 1fr, 1fr),
     align: "lrlr",

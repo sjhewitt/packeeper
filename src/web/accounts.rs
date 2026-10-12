@@ -11,7 +11,7 @@ use super::{
     AppError, AppResult, AppState, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
 };
 use crate::db;
-use crate::models::{Account, LineItem, Rule};
+use crate::models::{Account, GASR_EXPENSE_LINES, GASR_INCOME_LINES, LineItem, Rule, valid_gasr_line};
 use crate::money::{self, Money};
 
 #[derive(Template)]
@@ -166,6 +166,8 @@ pub async fn update(
 struct LineItemsPage {
     layout: Layout,
     items: Vec<(LineItem, i64)>,
+    income_lines: Vec<(&'static str, &'static str)>,
+    expense_lines: Vec<(&'static str, &'static str)>,
 }
 
 pub async fn line_items(
@@ -185,7 +187,12 @@ pub async fn line_items(
             (li, n)
         })
         .collect();
-    render(LineItemsPage { layout: Layout::new(&state, &user, "settings", "Line items", &flash).await?, items })
+    render(LineItemsPage {
+        layout: Layout::new(&state, &user, "settings", "Line items", &flash).await?,
+        items,
+        income_lines: GASR_INCOME_LINES.to_vec(),
+        expense_lines: GASR_EXPENSE_LINES.to_vec(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -216,7 +223,7 @@ pub async fn create_line_item(
         Some("transfer") => "transfer",
         _ => "expense",
     };
-    let gasr = f.gasr_line.as_deref().filter(|g| fund == "gaming" && kind == "income" && matches!(*g, "3" | "14"));
+    let gasr = valid_gasr_line(fund, kind, f.gasr_line.as_deref());
     let next_sort: i64 =
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), 0) + 10 FROM line_items").fetch_one(&state.pool).await?;
     let result = sqlx::query(
@@ -243,6 +250,7 @@ struct LineItemEditPage {
     layout: Layout,
     li: LineItem,
     used: i64,
+    gasr_lines: Vec<(&'static str, &'static str)>,
 }
 
 pub async fn edit_line_item(
@@ -260,10 +268,16 @@ pub async fn edit_line_item(
         .bind(id)
         .fetch_one(&state.pool)
         .await?;
+    let gasr_lines = match (li.fund.as_str(), li.kind.as_str()) {
+        ("gaming", "income") => GASR_INCOME_LINES.to_vec(),
+        ("gaming", "expense") => GASR_EXPENSE_LINES.to_vec(),
+        _ => Vec::new(),
+    };
     render(LineItemEditPage {
         layout: Layout::new(&state, &user, "settings", li.name.clone(), &flash).await?,
         li,
         used,
+        gasr_lines,
     })
 }
 
@@ -292,7 +306,7 @@ pub async fn update_line_item(
         (Some(k @ ("income" | "expense" | "transfer")), 0) => k.to_string(),
         _ => li.kind.clone(),
     };
-    let gasr = f.gasr_line.as_deref().filter(|g| li.fund == "gaming" && kind == "income" && matches!(*g, "3" | "14"));
+    let gasr = valid_gasr_line(&li.fund, &kind, f.gasr_line.as_deref());
     let sort = opt_id(&f.sort_order).unwrap_or(li.sort_order);
     let result = sqlx::query(
         "UPDATE line_items SET name = ?, kind = ?, gasr_line = ?, description = ?, sort_order = ?, active = ?, receipt_required = ? WHERE id = ?",

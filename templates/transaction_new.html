@@ -38,6 +38,15 @@
       </select>
     </div>
   </div>
+  {% if !events.is_empty() %}
+  <div class="field" id="event-field"><label for="gaming_event_id">Licensed gaming event</label>
+    <select id="gaming_event_id" name="gaming_event_id">
+      <option value="">— not a licensed gaming event —</option>
+      {% for e in events %}<option value="{{ e.id }}">{{ e.label() }}</option>{% endfor %}
+    </select>
+    <div class="hint">For a prize, an event expense, or event revenue in the gaming account.</div>
+  </div>
+  {% endif %}
   <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes"></textarea></div>
   <div class="field"><label class="check"><input type="checkbox" name="cleared"> Already on a bank statement</label>
     <div class="hint">Leave this off so the next import can match it. Turn it on only for an item that will never appear in a bank file.</div></div>
@@ -53,6 +62,11 @@
       o.hidden = o.dataset.fund !== fund;
       if (o.hidden && o.selected) sel.value = '';
     });
+    var ev = document.getElementById('event-field');
+    if (ev) {
+      ev.hidden = fund !== 'gaming';
+      if (ev.hidden) ev.querySelector('select').value = '';
+    }
   }
   filterLines();
 </script>

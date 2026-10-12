@@ -307,17 +307,119 @@ pub async fn monthly(pool: &SqlitePool, month: NaiveDate) -> anyhow::Result<Valu
     Ok(Value::Object(m))
 }
 
+/// The short gaming summary in the annual report. Lines that are zero are left out.
 fn gaming_summary_rows(g: &GamingReport) -> Vec<Value> {
     let mut rows = vec![row(vec!["Opening balance (line 1)".into(), acc(g.opening)])];
+    let optional = [
+        ("Community Gaming Grant (line 2)", g.community_grant),
+        ("Other gaming revenue (line 5)", g.other_income_total()),
+        ("Licensed gaming event revenue (lines 6 to 13)", g.event_revenue()),
+        ("Donations from other organizations (lines 15 to 17)", g.donations_total()),
+        ("Less: prize costs for licensed events (line 22)", -g.prizes.total()),
+        ("Less: expenses for licensed events (line 26)", -g.event_expenses.total()),
+    ];
     rows.push(row(vec!["PAC gaming grant received (line 3)".into(), acc(g.grant)]));
-    if !g.other_income.is_zero() {
-        rows.push(flag(vec!["Other deposits (line 5) — not allowed".into(), acc(g.other_income)]));
+    for (label, amount) in &optional[..2] {
+        if !amount.is_zero() {
+            rows.push(row(vec![label.to_string(), acc(*amount)]));
+        }
     }
     rows.push(row(vec!["Interest and GST rebates (line 14)".into(), acc(g.interest_gst)]));
-    rows.push(subtotal(vec!["Total available (line 28)".into(), acc(g.available)]));
-    rows.push(row(vec![format!("Disbursements, {} items (line 46)", g.disbursements.len()), acc(-g.total_disbursed)]));
-    rows.push(total(vec!["Closing balance (line 47)".into(), acc(g.closing)]));
+    for (label, amount) in &optional[2..] {
+        if !amount.is_zero() {
+            rows.push(row(vec![label.to_string(), acc(*amount)]));
+        }
+    }
+    rows.push(subtotal(vec!["Total available (line 28)".into(), acc(g.available())]));
+    rows.push(row(vec![
+        format!("Disbursements, {} items (line 46)", g.disbursements.len()),
+        acc(-g.total_disbursed()),
+    ]));
+    rows.push(total(vec!["Closing balance (line 47)".into(), acc(g.closing())]));
     rows
+}
+
+/// Sections 3 to 6 of the GASR, line by line, as the form lays them out.
+fn gasr_lines(g: &GamingReport) -> (Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>) {
+    let line = |n: &str, label: &str, amount: Money| row(vec![n.into(), label.into(), acc(amount)]);
+    let mut revenue = vec![
+        line("2", "Community Gaming Grant revenue", g.community_grant),
+        line("3", "PAC/DPAC grant revenue", g.grant),
+        line("4", "Capital Project Grant revenue (not used by PACs)", Money(0)),
+    ];
+    if g.other_income.is_empty() {
+        revenue.push(line("5", "Other gaming revenue", Money(0)));
+    } else {
+        let names: Vec<&str> = g.other_income.iter().map(|o| o.name.as_str()).collect();
+        let cells =
+            vec!["5".into(), format!("Other gaming revenue: {}", names.join("; ")), acc(g.other_income_total())];
+        revenue.push(if g.not_allowed.is_zero() { row(cells) } else { flag(cells) });
+    }
+    revenue.push(line("6–13", "Gross revenue from gaming event licences (see the licence table)", g.event_revenue()));
+    revenue.push(line("14", "GST rebate, interest, or sale of assets bought with gaming funds", g.interest_gst));
+    if g.donations.is_empty() {
+        revenue.push(line("15–17", "Gaming fund donations from other organizations", Money(0)));
+    } else {
+        for (i, d) in g.donations.iter().enumerate() {
+            revenue.push(line(&(15 + i).to_string(), &format!("Gaming fund donation: {}", d.name), d.amount));
+        }
+    }
+    revenue.push(total(vec!["18".into(), "Total gaming revenue (lines 2 to 17)".into(), acc(g.total_revenue())]));
+
+    let other = |base: &str, c: &super::gaming::CostLines| {
+        if c.other_types.is_empty() { base.to_string() } else { format!("{base} ({})", c.other_label()) }
+    };
+    let costs = vec![
+        line("19", "Bingo prize costs", g.prizes.bingo),
+        line("20", "Ticket raffle prize costs", g.prizes.ticket_raffle),
+        line("21", &other("Other prize costs", &g.prizes), g.prizes.other),
+        subtotal(vec!["22".into(), "Total prize costs (lines 19 to 21)".into(), acc(g.prizes.total())]),
+        line("23", "Bingo expenses", g.event_expenses.bingo),
+        line("24", "Ticket raffle expenses", g.event_expenses.ticket_raffle),
+        line("25", &other("Other gaming event expenses", &g.event_expenses), g.event_expenses.other),
+        subtotal(vec![
+            "26".into(),
+            "Total gaming event expenses (lines 23 to 25)".into(),
+            acc(g.event_expenses.total()),
+        ]),
+    ];
+
+    let proceeds = vec![
+        line("1", "Opening balance (last year's line 47)", g.opening),
+        line("27", "Net gaming proceeds (line 18 − line 22 − line 26)", g.net_proceeds()),
+        subtotal(vec!["28".into(), "Total available for disbursement (line 1 + line 27)".into(), acc(g.available())]),
+        line("29", "Capital Project Grant disbursements (not used by PACs)", Money(0)),
+        line("46", "Total gaming fund disbursements (lines 29 to 45)", g.total_disbursed()),
+        total(vec!["47".into(), "Closing balance (line 28 − line 46)".into(), acc(g.closing())]),
+    ];
+
+    let mut licences: Vec<Value> = g
+        .events
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let line_no = if i < 8 { (6 + i).to_string() } else { "sheet".into() };
+            let (number, class) = match &e.event {
+                Some(ev) => (ev.licence_number.clone(), format!("Class {} ({})", ev.licence_class, ev.type_label())),
+                None => ("licence not chosen".into(), String::new()),
+            };
+            let cells = vec![line_no, number, class, gasr_date(e.from), gasr_date(e.to), acc(e.amount)];
+            if e.event.is_none() { flag(cells) } else { row(cells) }
+        })
+        .collect();
+    if licences.is_empty() {
+        licences.push(note("No licensed gaming event revenue in this fiscal year."));
+    } else {
+        licences.push(total(vec![
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "Total".into(),
+            acc(g.event_revenue()),
+        ]));
+    }
+    (revenue, costs, proceeds, licences)
 }
 
 pub async fn annual(pool: &SqlitePool, fy: &FiscalYear) -> anyhow::Result<Value> {
@@ -530,23 +632,34 @@ pub async fn budget(pool: &SqlitePool, p: &Proposal) -> anyhow::Result<Value> {
 
 pub async fn gasr(pool: &SqlitePool, g: &GamingReport) -> anyhow::Result<Value> {
     let settings = Settings::load(pool).await?;
-    let mut lines = vec![
-        row(vec!["1".into(), "Opening balance (last year's line 47)".into(), acc(g.opening)]),
-        row(vec!["3".into(), "PAC/DPAC grant".into(), acc(g.grant)]),
-    ];
-    if !g.other_income.is_zero() {
-        lines.push(flag(vec![
-            "5".into(),
-            "Other (must be zero for a PAC; see problems above)".into(),
-            acc(g.other_income),
+    let (revenue, costs, proceeds, licences) = gasr_lines(g);
+
+    let mut event_costs: Vec<Value> = g
+        .event_costs
+        .iter()
+        .map(|c| {
+            let licence = c.event.as_ref().map(|e| e.licence_number.clone()).unwrap_or_else(|| "not chosen".into());
+            let cells = vec![
+                gasr_date(c.tx.date),
+                c.tx.reference.clone(),
+                c.tx.display_name().to_string(),
+                licence,
+                c.kind_label().into(),
+                acc(c.amount),
+            ];
+            if c.event.is_none() { flag(cells) } else { row(cells) }
+        })
+        .collect();
+    if !event_costs.is_empty() {
+        event_costs.push(total(vec![
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "Total".into(),
+            acc(g.prizes.total() + g.event_expenses.total()),
         ]));
     }
-    lines.push(row(vec!["14".into(), "GST rebate, interest, and asset sale revenue".into(), acc(g.interest_gst)]));
-    lines.push(subtotal(vec!["18".into(), "Total gaming revenue".into(), acc(g.total_revenue)]));
-    lines.push(row(vec!["27".into(), "Net gaming proceeds (no event costs for a PAC)".into(), acc(g.total_revenue)]));
-    lines.push(subtotal(vec!["28".into(), "Total available (line 1 + line 27)".into(), acc(g.available)]));
-    lines.push(row(vec!["46".into(), "Total disbursements (lines 30 to 45)".into(), acc(g.total_disbursed)]));
-    lines.push(total(vec!["47".into(), "Closing balance (line 28 − line 46)".into(), acc(g.closing)]));
 
     let mut disb: Vec<Value> = g
         .disbursements
@@ -567,7 +680,7 @@ pub async fn gasr(pool: &SqlitePool, g: &GamingReport) -> anyhow::Result<Value> 
         String::new(),
         String::new(),
         "Total (line 46)".into(),
-        acc(g.total_disbursed),
+        acc(g.total_disbursed()),
     ]));
 
     let reimbursements: Vec<Value> = g
@@ -606,9 +719,8 @@ pub async fn gasr(pool: &SqlitePool, g: &GamingReport) -> anyhow::Result<Value> 
         .deposits
         .iter()
         .map(|d| {
-            let cells =
-                vec![gasr_date(d.tx.date), d.tx.display_name().to_string(), d.gasr_line.to_string(), acc(d.amount)];
-            if d.gasr_line == "5" { flag(cells) } else { row(cells) }
+            let cells = vec![gasr_date(d.tx.date), d.tx.display_name().to_string(), d.lines.clone(), acc(d.amount)];
+            if d.allowed { row(cells) } else { flag(cells) }
         })
         .collect();
     if deposits.is_empty() {
@@ -626,7 +738,12 @@ pub async fn gasr(pool: &SqlitePool, g: &GamingReport) -> anyhow::Result<Value> 
     m.insert("year_end".into(), json!(long_date(g.fy.end_date)));
     m.insert("due_date".into(), json!(long_date(g.due_date)));
     m.insert("file_number".into(), json!(settings.gaming_org_number));
-    m.insert("lines".into(), json!(lines));
+    m.insert("revenue".into(), json!(revenue));
+    m.insert("licences".into(), json!(licences));
+    m.insert("costs".into(), json!(costs));
+    m.insert("has_events".into(), json!(g.has_events()));
+    m.insert("event_costs".into(), json!(event_costs));
+    m.insert("proceeds".into(), json!(proceeds));
     m.insert("disbursements".into(), json!(disb));
     m.insert("reimbursements".into(), json!(reimbursements));
     m.insert("accounts".into(), json!(accounts));

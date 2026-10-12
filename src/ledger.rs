@@ -21,6 +21,8 @@ pub struct TxRow {
     pub allocation_count: i64,
     pub receipt_count: i64,
     pub receipt_required: bool,
+    /// A licensed gaming event line item with no event chosen.
+    pub needs_event: bool,
 }
 
 impl TxRow {
@@ -64,7 +66,10 @@ const TX_ROW_SELECT: &str = "
            -- A gaming transfer that repays general expenses relies on their receipts.
            COALESCE((SELECT MIN(li.receipt_required) FROM allocations al
               JOIN line_items li ON li.id = al.line_item_id WHERE al.transaction_id = t.id), 1)
-             AND NOT EXISTS (SELECT 1 FROM transactions r WHERE r.reimbursed_by_id = t.id) AS receipt_required
+             AND NOT EXISTS (SELECT 1 FROM transactions r WHERE r.reimbursed_by_id = t.id) AS receipt_required,
+           t.gaming_event_id IS NULL AND EXISTS (SELECT 1 FROM allocations al
+              JOIN line_items li ON li.id = al.line_item_id
+              WHERE al.transaction_id = t.id AND li.gasr_line IN ('6', 'prize', 'event_expense')) AS needs_event
     FROM transactions t JOIN accounts a ON a.id = t.account_id";
 
 #[derive(Debug, Clone, Default)]
@@ -78,6 +83,7 @@ pub struct Filter {
     pub uncleared: bool,
     pub search: Option<String>,
     pub fund: Option<String>,
+    pub gaming_event_id: Option<i64>,
     pub limit: Option<i64>,
 }
 
@@ -106,6 +112,9 @@ pub async fn list(pool: &SqlitePool, f: &Filter) -> anyhow::Result<Vec<TxRow>> {
     }
     if f.uncleared {
         q.push(" AND cleared = 0");
+    }
+    if let Some(id) = f.gaming_event_id {
+        q.push(" AND gaming_event_id = ").push_bind(id);
     }
     if let Some(s) = f.search.as_ref().filter(|s| !s.trim().is_empty()) {
         let like = format!("%{}%", s.trim());

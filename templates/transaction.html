@@ -35,6 +35,15 @@
       <div class="field"><label for="payee">Payee or payer</label><input type="text" id="payee" name="payee" value="{{ r.tx.payee }}" placeholder="{{ r.tx.description }}"><div class="hint">A clear name for reports. The bank description stays on record.</div></div>
       <div class="field"><label for="purpose">Purpose</label><input type="text" id="purpose" name="purpose" value="{{ r.tx.purpose }}" placeholder="e.g. Bus for grade 4 trip to Science World"><div class="hint">{% if account.is_gaming() %}Required for gaming payments. The Gaming Account Summary Report prints it.{% else %}Printed in the monthly report.{% endif %}</div></div>
       <div class="field"><label for="reference">Cheque or reference number</label><input type="text" id="reference" name="reference" value="{{ r.tx.reference }}"></div>
+      {% if account.is_gaming() %}
+      <div class="field"><label for="gaming_event_id">Licensed gaming event</label>
+        <select id="gaming_event_id" name="gaming_event_id">
+          <option value="">— not a licensed gaming event —</option>
+          {% for e in events %}<option value="{{ e.id }}" {% if self.is_event(e.id) %}selected{% endif %}>{{ e.label() }}</option>{% endfor %}
+        </select>
+        <div class="hint">For event revenue, prizes, and event expenses. They go on lines 6 to 13 and 19 to 26 of the gaming report. <a href="/gaming/events">Manage events</a></div>
+      </div>
+      {% endif %}
       <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes">{{ r.tx.notes }}</textarea></div>
       {% if layout.can_edit %}<button>Save details</button>{% endif %}
     </form>

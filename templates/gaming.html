@@ -2,10 +2,11 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Gaming grant</h1>
+    <h1>Gaming account</h1>
     <p class="sub">Gaming Account Summary Report for the year ending {{ g.fy.end_date.format("%B %-d, %Y") }} · due by {{ g.due_date.format("%B %-d, %Y") }}</p>
   </div>
   <div class="actions">
+    <a class="button secondary" href="/gaming/events">Licensed gaming events</a>
     <form method="get" action="/gaming">
       <select name="fy" onchange="this.form.submit()" aria-label="Fiscal year">
         {% for y in years %}<option value="{{ y.id }}" {% if y.id == g.fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
@@ -36,12 +37,23 @@
       <thead><tr><th>Line</th><th>Description</th><th class="num">Amount</th></tr></thead>
       <tbody>
         <tr><td>1</td><td>Opening balance</td><td class="num">{{ g.opening }}</td></tr>
+        {% if !g.community_grant.is_zero() %}<tr><td>2</td><td>Community Gaming Grant</td><td class="num">{{ g.community_grant }}</td></tr>{% endif %}
         <tr><td>3</td><td>PAC gaming grant</td><td class="num">{{ g.grant }}</td></tr>
-        {% if !g.other_income.is_zero() %}<tr class="flagged"><td>5</td><td>Other deposits (not allowed)</td><td class="num neg">{{ g.other_income }}</td></tr>{% endif %}
+        {% for o in g.other_income %}<tr {% if !g.not_allowed.is_zero() %}class="flagged"{% endif %}><td>5</td><td>Other: {{ o.name }}</td><td class="num">{{ o.amount }}</td></tr>{% endfor %}
+        {% for e in g.events %}<tr {% if e.event.is_none() %}class="flagged"{% endif %}><td>{% if loop.index <= 8 %}{{ loop.index + 5 }}{% else %}sheet{% endif %}</td>
+          <td>{% if let Some(ev) = e.event %}<a href="/gaming/events/{{ ev.id }}">{{ ev.name }}</a> <span class="small muted">licence {{ ev.licence_number }}, Class {{ ev.licence_class }}, {{ e.from.format("%d-%m-%Y") }} to {{ e.to.format("%d-%m-%Y") }}</span>{% else %}Event revenue with no licence chosen{% endif %}</td>
+          <td class="num">{{ e.amount }}</td></tr>{% endfor %}
         <tr><td>14</td><td>Interest and GST rebates</td><td class="num">{{ g.interest_gst }}</td></tr>
-        <tr class="subtotal"><td>28</td><td>Total available</td><td class="num">{{ g.available }}</td></tr>
-        <tr><td>46</td><td>Disbursements ({{ g.disbursements.len() }})</td><td class="num">{{ g.total_disbursed }}</td></tr>
-        <tr class="total"><td>47</td><td>Closing balance</td><td class="num">{{ g.closing }}</td></tr>
+        {% for d in g.donations %}<tr><td>{% if loop.index <= 3 %}{{ loop.index + 14 }}{% else %}sheet{% endif %}</td><td>Donation: {{ d.name }}</td><td class="num">{{ d.amount }}</td></tr>{% endfor %}
+        <tr class="subtotal"><td>18</td><td>Total gaming revenue</td><td class="num">{{ g.total_revenue() }}</td></tr>
+        {% if g.has_events() %}
+        <tr><td>22</td><td>Less: prize costs{% if !g.prizes.other_types.is_empty() %} <span class="small muted">(other: {{ g.prizes.other_label() }})</span>{% endif %}</td><td class="num">{{ g.prizes.total() }}</td></tr>
+        <tr><td>26</td><td>Less: event expenses{% if !g.event_expenses.other_types.is_empty() %} <span class="small muted">(other: {{ g.event_expenses.other_label() }})</span>{% endif %}</td><td class="num">{{ g.event_expenses.total() }}</td></tr>
+        <tr><td>27</td><td>Net gaming proceeds</td><td class="num">{{ g.net_proceeds() }}</td></tr>
+        {% endif %}
+        <tr class="subtotal"><td>28</td><td>Total available</td><td class="num">{{ g.available() }}</td></tr>
+        <tr><td>46</td><td>Disbursements ({{ g.disbursements.len() }})</td><td class="num">{{ g.total_disbursed() }}</td></tr>
+        <tr class="total"><td>47</td><td>Closing balance</td><td class="num">{{ g.closing() }}</td></tr>
       </tbody>
     </table>
   </div>
@@ -83,6 +95,28 @@
     </tbody>
   </table>
 </div>
+
+{% if !g.event_costs.is_empty() %}
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Prizes and expenses for licensed events (Section 4)</h2></div>
+  <table>
+    <thead><tr><th>Date</th><th>Ref #</th><th>Paid to</th><th>Event</th><th>Kind</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+    {% for c in g.event_costs %}
+      <tr {% if c.event.is_none() %}class="flagged"{% endif %}>
+        <td class="nowrap">{{ c.tx.date.format("%d-%m-%Y") }}</td>
+        <td>{{ c.tx.reference }}</td>
+        <td><a href="/transactions/{{ c.tx.id }}">{{ c.tx.display_name() }}</a></td>
+        <td>{% if let Some(ev) = c.event %}<a href="/gaming/events/{{ ev.id }}">{{ ev.name }}</a>{% else %}<span class="tag warn">choose licence</span>{% endif %}</td>
+        <td>{{ c.kind_label() }}</td>
+        <td class="num">{{ c.amount }}</td>
+      </tr>
+    {% endfor %}
+      <tr class="subtotal"><td colspan="5">Bingo {{ g.prizes.bingo }} / {{ g.event_expenses.bingo }} · Ticket raffle {{ g.prizes.ticket_raffle }} / {{ g.event_expenses.ticket_raffle }} · Other {{ g.prizes.other }} / {{ g.event_expenses.other }} <span class="muted small">(prizes / expenses)</span></td><td class="num">{{ g.prizes.total() + g.event_expenses.total() }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <details class="panel help">
   <summary>What gaming funds can and cannot pay for (PAC rules, 2026)</summary>

@@ -6,6 +6,7 @@
     {% if !r.tx.purpose.is_empty() %}<span class="muted small"> · {{ r.tx.purpose }}</span>{% endif %}
     {% if !r.tx.payee.is_empty() && r.tx.payee != r.tx.description %}<span class="bank">{{ r.tx.description }}</span>{% endif %}
     {% if !r.tx.cleared %}<span class="tag muted" title="Entered by hand; the bank has not shown it yet">not cleared</span>{% endif %}
+    {% if r.needs_event %}<a href="/transactions/{{ r.tx.id }}" class="tag warn" title="Choose the gaming event licence">choose licence</a>{% endif %}
   </td>
   <td>
     {% if r.is_split() %}

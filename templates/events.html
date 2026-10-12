@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/gaming">Gaming</a> ›</p>
+    <h1>Licensed gaming events</h1>
+    <p class="sub">Raffles, bingo, and other events held under a gaming event licence. Their revenue goes on lines 6 to 13 of the Gaming Account Summary Report. Their prizes and expenses go on lines 19 to 26.</p>
+  </div>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Event</th><th>Licence</th><th>Dates</th><th class="num">Revenue</th><th class="num">Prizes</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
+    <tbody>
+    {% for (e, t) in events %}
+      <tr>
+        <td><a href="/gaming/events/{{ e.id }}">{{ e.name }}</a><br><span class="small muted">{{ e.type_label() }} · {{ t.transactions }} transaction(s)</span></td>
+        <td class="nowrap">{{ e.licence_number }}<br><span class="small muted">Class {{ e.licence_class }}</span></td>
+        <td class="nowrap">{{ e.start_date.format("%b %-d, %Y") }}<br><span class="small muted">to {{ e.end_date.format("%b %-d, %Y") }}</span></td>
+        <td class="num">{{ t.revenue }}</td>
+        <td class="num">{{ t.prizes }}</td>
+        <td class="num">{{ t.expenses }}</td>
+        <td class="num {% if t.net().is_negative() %}neg{% endif %}">{{ t.net() }}</td>
+      </tr>
+    {% endfor %}
+    {% if events.is_empty() %}<tr><td colspan="7" class="muted" style="padding: 18px;">No licensed gaming events yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if layout.can_edit %}
+<form class="panel" method="post" action="/gaming/events" style="max-width: 760px;">
+  <h2>Add an event</h2>
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" placeholder="Spring raffle" required></div>
+    <div class="field"><label for="licence_number">Licence number</label><input type="text" id="licence_number" name="licence_number" required></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="licence_class">Licence class</label>
+      <select id="licence_class" name="licence_class">
+        {% for c in classes %}<option value="{{ c }}">Class {{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="event_type">Kind of event</label>
+      <select id="event_type" name="event_type" onchange="document.getElementById('other-type').hidden = this.value !== 'other'">
+        {% for (code, label) in event_types %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field" id="other-type" hidden><label for="other_type">What kind?</label><input type="text" id="other_type" name="other_type" placeholder="Wheel of fortune"></div>
+  </div>
+  <div class="fields">
+    <div class="field"><label for="start_date">Licence starts</label><input type="date" id="start_date" name="start_date" value="{{ today }}" required></div>
+    <div class="field"><label for="end_date">Licence ends</label><input type="date" id="end_date" name="end_date" value="{{ today }}" required></div>
+  </div>
+  <div class="field"><label for="notes">Notes</label><textarea id="notes" name="notes" placeholder="Draw date, prizes, volunteers, and so on"></textarea></div>
+  <button>Add event</button>
+</form>
+{% endif %}
+
+<details class="panel help">
+  <summary>How to record a licensed gaming event</summary>
+  <ol class="small">
+    <li>Add the event here with its licence number and class.</li>
+    <li>Deposit all event revenue into the gaming account. Give the deposit the line item <em>Licensed gaming event revenue</em>, and choose the event on the transaction.</li>
+    <li>Pay prizes and event costs from the gaming account. Use <em>Licensed gaming event prizes</em> or <em>Licensed gaming event expenses</em>, and choose the event. Attach the receipts.</li>
+    <li>A donated prize costs nothing, so it has no transaction.</li>
+    <li>The Gaming Account Summary Report then fills lines 6 to 13 and 19 to 26.</li>
+  </ol>
+  <p class="small muted">Your licence may also need its own event report. Check the licence conditions from the Gaming Policy and Enforcement Branch.</p>
+</details>
+{% endblock %}

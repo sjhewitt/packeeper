@@ -18,7 +18,7 @@
       {% for (li, used) in items %}{% if li.fund == *fund %}
         <tr>
           <td>{{ li.name }}{% if !li.active %} <span class="tag muted">hidden</span>{% endif %}
-            {% if let Some(g) = li.gasr_line %} <span class="tag gaming" title="Gaming Account Summary Report line">GASR line {{ g }}</span>{% endif %}
+            {% if let Some(g) = li.gasr_label() %} <span class="tag gaming" title="Gaming Account Summary Report">{{ g }}</span>{% endif %}
             {% if li.kind == "expense" && !li.receipt_required %} <span class="tag muted">no receipt needed</span>{% endif %}</td>
           <td>{{ li.kind }}</td>
           <td class="num">{{ used }}</td>
@@ -43,12 +43,17 @@
       <select id="kind" name="kind"><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer between accounts</option></select>
     </div>
   </div>
-  <div class="field"><label for="gasr_line">Gaming report line (gaming income only)</label>
+  <div class="field"><label for="gasr_line">Gaming report line (gaming fund only)</label>
     <select id="gasr_line" name="gasr_line">
-      <option value="">—</option>
-      <option value="3">Line 3: PAC/DPAC grant</option>
-      <option value="14">Line 14: GST rebate, interest, asset sales</option>
+      <option value="">— none; a gaming expense goes on lines 30 to 45</option>
+      <optgroup label="Gaming income">
+        {% for (code, label) in income_lines %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+      </optgroup>
+      <optgroup label="Gaming expenses">
+        {% for (code, label) in expense_lines %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+      </optgroup>
     </select>
+    <div class="hint">A choice that does not suit the fund and kind is ignored.</div>
   </div>
   <div class="field"><label for="description">Description</label><input type="text" id="description" name="description"></div>
   <button>Add line item</button>
