@@ -9,6 +9,13 @@
 
 {% if accounts.is_empty() %}
 <div class="panel"><p>Add a bank account first. <a href="/accounts">Accounts</a></p></div>
+{% else if layout.demo.is_some() %}
+<form class="panel" method="post" action="/import/sample" style="max-width: 680px;">
+  <h2>Try a sample statement</h2>
+  <p>File uploads are off in the public demo. Import a small sample statement for the general account instead. It has four transactions from the past few days.</p>
+  <p class="small muted">Import it twice to see how PAC Keeper skips rows it already has.</p>
+  <button>Preview the sample statement</button>
+</form>
 {% else %}
 <form class="panel" method="post" action="/import" enctype="multipart/form-data" style="max-width: 680px;">
   <div class="field"><label for="account_id">Account</label>

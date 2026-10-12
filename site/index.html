@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PAC Keeper</title>
+<meta name="description" content="Bookkeeping for BC Parent Advisory Committee treasurers. Import bank statements, keep receipts, track the gaming grant, and print the monthly, AGM, and Gaming Account Summary reports.">
+<link rel="icon" href="img/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&family=Zilla+Slab:wght@500;600;700&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --paper: #f6f8fa;
+  --paper-raised: #ffffff;
+  --rule: #dbe5ee;
+  --margin: #d9534a;
+  --ink: #17222d;
+  --ink-soft: #4d5d6b;
+  --navy: #1d4f73;
+  --navy-ink: #ffffff;
+  --pencil: #e8a317;
+  --band: #16354d;
+  --band-ink: #e9f0f6;
+  --band-soft: #a9c0d3;
+  --band-rule: #27506e;
+  --line: #c9d5df;
+  --shadow: 0 1px 2px rgba(23, 34, 45, .06), 0 12px 32px -12px rgba(23, 34, 45, .22);
+  --display: "Zilla Slab", Rockwell, "Roboto Slab", Georgia, serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0f1a24;
+    --paper-raised: #15232f;
+    --rule: #1b2b3a;
+    --margin: #c4564e;
+    --ink: #e6edf3;
+    --ink-soft: #a5b4c1;
+    --navy: #7fb1d8;
+    --navy-ink: #0f1a24;
+    --pencil: #f0b43a;
+    --band: #0a131b;
+    --band-ink: #e6edf3;
+    --band-soft: #9fb3c4;
+    --band-rule: #1f3447;
+    --line: #2a3b4b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 14px 36px -14px rgba(0, 0, 0, .7);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0f1a24;
+  --paper-raised: #15232f;
+  --rule: #1b2b3a;
+  --margin: #c4564e;
+  --ink: #e6edf3;
+  --ink-soft: #a5b4c1;
+  --navy: #7fb1d8;
+  --navy-ink: #0f1a24;
+  --pencil: #f0b43a;
+  --band: #0a131b;
+  --band-ink: #e6edf3;
+  --band-soft: #9fb3c4;
+  --band-rule: #1f3447;
+  --line: #2a3b4b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 14px 36px -14px rgba(0, 0, 0, .7);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 18px;
+  line-height: 1.55;
+}
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--navy); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--pencil); outline-offset: 3px; border-radius: 4px; }
+
+.wrap { max-width: 1160px; margin: 0 auto; padding-inline: 24px; }
+@media (max-width: 600px) { .wrap { padding-inline: 16px; } body { font-size: 17px; } }
+
+h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.08; text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+h1 { font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 700; }
+h2 { font-size: clamp(1.9rem, 3.6vw, 2.7rem); }
+h3 { font-size: 1.35rem; }
+p { margin: 0; }
+.lede { font-size: 1.2rem; color: var(--ink-soft); max-width: 36em; }
+.eyebrow { font-family: var(--mono); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+
+/* Ledger paper: faint blue ruling and a red margin line. */
+.ruled {
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, var(--rule) 31px, var(--rule) 32px);
+}
+
+/* Top bar */
+.top { padding-block: 18px; }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700; font-size: 1.4rem; color: var(--ink); text-decoration: none; }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.top nav { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; font-size: .95rem; }
+.top nav a { color: var(--ink-soft); text-decoration: none; }
+.top nav a:hover { color: var(--ink); }
+
+.button {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--body); font-weight: 700; font-size: 1rem;
+  padding: 12px 20px; border-radius: 8px;
+  background: var(--navy); color: var(--navy-ink); text-decoration: none;
+  border: 2px solid var(--navy);
+}
+.button:hover { filter: brightness(1.1); }
+.button.ghost { background: transparent; color: var(--navy); }
+.top nav .button { padding: 8px 14px; font-size: .95rem; color: var(--navy-ink); }
+
+/* Hero */
+.hero { padding-block: 40px 72px; position: relative; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: center; }
+.hero-copy { position: relative; padding-left: 28px; display: grid; gap: 22px; }
+.hero-copy::before { content: ""; position: absolute; left: 0; top: -12px; bottom: -12px; width: 2px; background: var(--margin); opacity: .8; }
+.kept { position: relative; display: inline-block; white-space: nowrap; }
+.kept svg { position: absolute; right: -0.55em; top: -0.35em; width: .95em; height: .95em; overflow: visible; }
+.kept path { fill: none; stroke: var(--pencil); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 120; stroke-dashoffset: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .kept path { animation: draw .8s cubic-bezier(.6, 0, .3, 1); }
+  @keyframes draw { from { stroke-dashoffset: 120; } to { stroke-dashoffset: 0; } }
+}
+.cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.login-note { font-family: var(--mono); font-size: .85rem; color: var(--ink-soft); }
+.login-note code { color: var(--ink); background: var(--paper-raised); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; }
+
+.shot { border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); background: var(--paper-raised); border: 1px solid var(--line); }
+.shot .bar { display: flex; gap: 6px; padding: 9px 12px; background: var(--paper-raised); border-bottom: 1px solid var(--line); }
+.shot .bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.hero .shot { transform: rotate(.6deg); }
+
+/* Sections */
+section { padding-block: 84px; }
+.section-head { display: grid; gap: 14px; max-width: 46rem; margin-bottom: 44px; }
+
+/* The monthly routine: a real sequence. */
+.routine { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: start; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 28px; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 3rem 1fr; gap: 4px 16px; counter-increment: step; }
+.steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  font-family: var(--display); font-weight: 700; font-size: 1.5rem;
+  width: 2.6rem; height: 2.6rem; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 2px solid var(--navy); color: var(--navy);
+}
+.steps p { color: var(--ink-soft); }
+
+/* Gaming band: the form, line by line. */
+.band { background: var(--band); color: var(--band-ink); }
+.band .eyebrow { color: var(--band-soft); }
+.band .lede { color: var(--band-soft); }
+.band a { color: var(--pencil); }
+.gaming { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 56px; align-items: start; }
+.lines { margin: 0; display: grid; border-top: 1px solid var(--band-rule); }
+.lines div { display: grid; grid-template-columns: 8.5rem 1fr; gap: 16px; padding-block: 14px; border-bottom: 1px solid var(--band-rule); }
+.lines dt { font-family: var(--mono); font-weight: 500; color: var(--pencil); font-variant-numeric: tabular-nums; }
+.lines dd { margin: 0; }
+.lines dd small { display: block; color: var(--band-soft); font-size: .9rem; margin-top: 2px; }
+.checks { margin-top: 36px; display: grid; gap: 10px; }
+.checks h3 { color: var(--band-ink); margin-bottom: 4px; }
+.checks ul { margin: 0; padding-left: 1.2em; color: var(--band-soft); display: grid; gap: 6px; }
+/* PDF pages are printed paper: white in both themes. */
+.form-page { background: #ffffff; border-radius: 6px; box-shadow: 0 20px 50px -20px rgba(0, 0, 0, .8); transform: rotate(-1.2deg); }
+
+/* Reports */
+.reports { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.report { display: grid; gap: 12px; align-content: start; }
+.report img { background: #ffffff; border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow); }
+.report p { color: var(--ink-soft); font-size: .98rem; }
+.also { margin-top: 36px; color: var(--ink-soft); max-width: 46rem; }
+
+/* Two-up feature rows */
+.feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: center; }
+.feature + .feature { margin-top: 84px; }
+.feature.flip > :first-child { order: 2; }
+.feature .copy { display: grid; gap: 16px; }
+.facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.facts li { padding-left: 28px; position: relative; }
+.facts li::before { content: ""; position: absolute; left: 4px; top: .42em; width: 10px; height: 6px; border-left: 2.5px solid var(--pencil); border-bottom: 2.5px solid var(--pencil); transform: rotate(-45deg); }
+
+/* Handover */
+.handover { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; }
+.handover div { display: grid; gap: 10px; align-content: start; border-top: 2px solid var(--ink); padding-top: 16px; }
+.handover p { color: var(--ink-soft); }
+
+/* FAQ */
+.faq { max-width: 46rem; display: grid; }
+.faq details { border-bottom: 1px solid var(--line); padding-block: 18px; }
+.faq summary { cursor: pointer; font-weight: 700; font-size: 1.1rem; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-family: var(--mono); color: var(--ink-soft); }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { margin-top: 10px; color: var(--ink-soft); }
+
+/* Closing call to action */
+.closing { text-align: left; display: grid; gap: 20px; justify-items: start; padding-left: 28px; position: relative; }
+.closing::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--margin); opacity: .8; }
+
+footer { padding-block: 36px 48px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: .9rem; }
+footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+  .hero .wrap, .routine, .gaming, .feature { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .feature.flip > :first-child { order: 0; }
+  .reports, .handover { grid-template-columns: minmax(0, 1fr); }
+  .reports { max-width: 26rem; }
+  .hero .shot, .form-page { transform: none; }
+  section { padding-block: 60px; }
+  .top nav .hide-narrow { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="img/logo.svg" alt="" width="36" height="36">PAC Keeper</a>
+    <nav aria-label="Sections">
+      <a class="hide-narrow" href="#gaming">Gaming grant</a>
+      <a class="hide-narrow" href="#reports">Reports</a>
+      <a class="hide-narrow" href="#questions">Questions</a>
+      <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero ruled">
+    <div class="wrap">
+      <div class="hero-copy">
+        <p class="eyebrow">For BC Parent Advisory Committee treasurers</p>
+        <h1>The PAC's books, <span class="kept">kept.<svg viewBox="0 0 60 60" aria-hidden="true"><path d="M8 32 L24 47 L54 10"/></svg></span></h1>
+        <p class="lede">Import the bank statements, attach the receipts, and assign each transaction to the budget. PAC Keeper then produces the monthly treasurer's report, the annual report for the AGM, and the Gaming Account Summary Report worksheet.</p>
+        <div class="cta">
+          <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
+          <a class="button ghost" href="#how">See how it works</a>
+        </div>
+        <p class="login-note">Demo sign-in: <code>demo</code> / <code>packeeper</code> · made-up PAC, resets every hour</p>
+      </div>
+      <figure class="shot" style="margin:0">
+        <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
+        <img src="img/dashboard.png" width="1600" height="1075" alt="The PAC Keeper dashboard: balances for the general and gaming accounts, budget against actual for each fund, gaming grant spending deadlines, and recent transactions.">
+      </figure>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="wrap routine">
+      <div>
+        <div class="section-head">
+          <p class="eyebrow">Before each PAC meeting</p>
+          <h2>The same four jobs, every month.</h2>
+          <p class="lede">PAC Keeper does the sums and keeps the paper trail, so you only make the decisions.</p>
+        </div>
+        <ol class="steps">
+          <li><h3>Import the bank file</h3><p>Download the activity from online banking and upload it. OFX, QFX, QBO, and CSV work. Rows you already have are skipped, and a cheque you wrote by hand is matched when it clears.</p></li>
+          <li><h3>Assign each transaction</h3><p>Pick a budget line from the list. Split a Costco run across hot lunch and staff appreciation. Rules handle the repeats, such as bank fees.</p></li>
+          <li><h3>Attach the receipts</h3><p>Drop in a photo or a PDF. Anything still missing a receipt is flagged on the dashboard and in the report.</p></li>
+          <li><h3>Print the report</h3><p>Choose the month, and PAC Keeper makes the treasurer's report: balances checked against the bank, budget against actual, and every transaction.</p></li>
+        </ol>
+      </div>
+      <figure class="shot" style="margin:0">
+        <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
+        <img src="img/transactions.png" width="1600" height="950" alt="The transactions list. Each row has a line item picker, receipt status, and tags for the gaming account and for cheques not yet cleared.">
+      </figure>
+    </div>
+  </section>
+
+  <section id="gaming" class="band">
+    <div class="wrap gaming">
+      <div>
+        <div class="section-head">
+          <p class="eyebrow">BC Community Gaming Grant</p>
+          <h2>The gaming report, line by line.</h2>
+          <p class="lede">Gaming money lives in its own account with its own rules. PAC Keeper keeps it apart from the general fund and fills in the provincial Gaming Account Summary Report for you.</p>
+        </div>
+        <dl class="lines">
+          <div><dt>Line 3</dt><dd>PAC/DPAC grant received</dd></div>
+          <div><dt>Lines 6–13</dt><dd>Gross revenue from each licensed gaming event<small>Licence number, class, and reporting period for every raffle or bingo</small></dd></div>
+          <div><dt>Line 14</dt><dd>Interest and GST rebates</dd></div>
+          <div><dt>Lines 19–26</dt><dd>Prize costs and event expenses<small>Split into bingo, ticket raffle, and other, as the form asks</small></dd></div>
+          <div><dt>Lines 30–45</dt><dd>Every disbursement, with date, cheque number, payee, and purpose</dd></div>
+          <div><dt>Line 47 = 52</dt><dd>Closing balance, checked against the gaming account at the bank</dd></div>
+        </dl>
+        <div class="checks">
+          <h3>And it checks the grant conditions</h3>
+          <ul>
+            <li>Deposits that are not grant money, interest, or event revenue</li>
+            <li>Payments with no receipt or no stated purpose</li>
+            <li>Reimbursements to the general account that do not match their expenses exactly, or cross a fiscal year</li>
+            <li>Grant money past its 24-month spending deadline, with the spend-by date of every grant</li>
+            <li>The report's due date, 90 days after year end</li>
+          </ul>
+        </div>
+      </div>
+      <img class="form-page" src="img/gasr-page.png" width="773" height="1000" alt="Page one of the Gaming Account Summary worksheet: Section 3 gaming revenue, the licence table for lines 6 to 13, and Section 4 prize costs and expenses.">
+    </div>
+  </section>
+
+  <section id="reports">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Reports</p>
+        <h2>Ready for the meeting, the AGM, and the Province.</h2>
+        <p class="lede">Every report is a clean PDF with the PAC's name on it, so you can print it, email it, or file it.</p>
+      </div>
+      <div class="reports">
+        <div class="report">
+          <img src="img/monthly-page.png" width="773" height="1000" alt="A monthly treasurer's report: key figures, bank accounts, and the general fund budget against actual.">
+          <h3>Monthly treasurer's report</h3>
+          <p>Account balances checked against the bank, budget against actual for the month and the year to date, every transaction, and the items still to resolve.</p>
+        </div>
+        <div class="report">
+          <img src="img/annual-page.png" width="773" height="1000" alt="An annual financial report: fund balances for the year and budget against actual with variances.">
+          <h3>Annual report for the AGM</h3>
+          <p>Opening and closing balance of each fund, budget against actual with variances, monthly totals, the gaming summary, your notes, and signature lines.</p>
+        </div>
+        <div class="report">
+          <img src="img/gasr-page.png" width="773" height="1000" alt="The Gaming Account Summary worksheet, with lines numbered as on the provincial form.">
+          <h3>Gaming Account Summary worksheet</h3>
+          <p>The figure for each line of the provincial form, the licence table, every disbursement, reimbursement summaries, and bank balances at year end.</p>
+        </div>
+      </div>
+      <p class="also">Planning next year? The <strong>budget proposal</strong> starts from last year's budget or actuals, estimates the gaming grant from enrolment, and prints with an approval block for the motion.</p>
+    </div>
+  </section>
+
+  <section class="ruled" style="padding-block: 84px;">
+    <div class="wrap">
+      <div class="feature">
+        <div class="copy">
+          <p class="eyebrow">Bank files</p>
+          <h2>No bank login to hand over.</h2>
+          <p class="lede">PAC Keeper never connects to your bank. You download a statement file, and PAC Keeper reads it.</p>
+          <ul class="facts">
+            <li>Built with Prospera Credit Union exports, and works with any bank that offers OFX, QFX, QBO, or CSV.</li>
+            <li>For a CSV, it guesses the columns, shows you a preview, and remembers your choices.</li>
+            <li>Overlapping date ranges are fine. Rows already imported are skipped.</li>
+            <li>Picked the wrong account? Undo the whole import in one step.</li>
+          </ul>
+        </div>
+        <figure class="shot" style="margin:0">
+          <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
+          <img src="img/import.png" width="1600" height="1300" alt="The import preview for a CSV file, with the date, withdrawal, deposit, and balance columns chosen, and the first rows of the file.">
+        </figure>
+      </div>
+      <div class="feature flip">
+        <div class="copy">
+          <p class="eyebrow">Licensed gaming events</p>
+          <h2>Raffles and bingo, with the licence attached.</h2>
+          <p class="lede">Record each licensed event with its licence number, class, and dates. Link its ticket sales, prizes, and costs, and see the net proceeds at a glance.</p>
+          <ul class="facts">
+            <li>Revenue goes on lines 6 to 13, one line per licence.</li>
+            <li>Prizes and expenses go in Section 4, not in the disbursements.</li>
+            <li>A finished event that cost more than it raised is flagged, because grant money may not pay fundraising costs.</li>
+          </ul>
+        </div>
+        <figure class="shot" style="margin:0">
+          <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
+          <img src="img/event.png" width="1600" height="700" alt="A licensed ticket raffle: revenue, prizes, expenses, and net proceeds, with its three transactions.">
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">June, every year</p>
+        <h2>Easy to hand over to the next treasurer.</h2>
+      </div>
+      <div class="handover">
+        <div>
+          <h3>One folder</h3>
+          <p>The database, the receipts, and every bank file live in one folder. Download a backup as a single zip file. The gaming grant asks you to keep records for five years; this is how.</p>
+        </div>
+        <div>
+          <h3>Your computer, or a server</h3>
+          <p>Run PAC Keeper on the treasurer's laptop with no sign-in. Or put it on a server with sign-in, where the treasurer edits and the chair and signing officers can only view.</p>
+        </div>
+        <div>
+          <h3>Any fiscal year</h3>
+          <p>July to June, September to August, or the year in your bylaws. Budgets stay line by line from one year to the next, so years compare.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="questions" class="ruled">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Questions</p>
+        <h2>What treasurers ask first.</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>Does it connect to our bank account?</summary>
+          <p>No. You download a statement file from online banking and upload it. There is no bank password to share, and nothing to set up with the bank.</p>
+        </details>
+        <details>
+          <summary>Which banks does it work with?</summary>
+          <p>It was built with Prospera Credit Union exports. Any bank that exports OFX, QFX, QBO, or CSV works. For a CSV, you choose the columns once and PAC Keeper remembers them.</p>
+        </details>
+        <details>
+          <summary>Does it decide what the gaming grant can pay for?</summary>
+          <p>No. That is the executive's call. PAC Keeper keeps gaming money in its own fund, lists the eligible and ineligible uses as a reminder, and flags what the grant conditions check: deposits, receipts, purposes, reimbursements, and deadlines.</p>
+        </details>
+        <details>
+          <summary>Can the rest of the executive see the books?</summary>
+          <p>Yes, when PAC Keeper runs on a server with sign-in. The treasurer can edit. A viewer, such as the chair, can see everything and open every report, but cannot change anything.</p>
+        </details>
+        <details>
+          <summary>Where is our data kept?</summary>
+          <p>In one folder on the computer or server that runs PAC Keeper. You choose where that is, and you can download a full backup at any time.</p>
+        </details>
+        <details>
+          <summary>What can I do in the demo?</summary>
+          <p>Everything except upload files: assign transactions, split them, edit the budget, record a raffle, import a sample statement, and print every report. The demo PAC is made up. Other visitors see your changes, and the data resets every hour.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="closing">
+        <h2>See a year of PAC books in two minutes.</h2>
+        <p class="lede">The demo holds a made-up PAC with a year and a half of hot lunches, field trips, a raffle, and a gaming grant. Open the gaming report first.</p>
+        <div class="cta">
+          <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
+          <span class="login-note">Sign in as <code>demo</code> / <code>packeeper</code></span>
+        </div>
+        <p class="login-note">Questions? Write to <strong>hello@packeeper.ca</strong></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>PAC Keeper · packeeper.ca · Made in British Columbia for BC PACs</span>
+    <span>PAC Keeper is not affiliated with the Province of BC or Prospera Credit Union.</span>
+  </div>
+</footer>
+
+</body>
+</html>

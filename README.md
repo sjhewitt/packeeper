@@ -110,10 +110,52 @@ pac-keeper --data-dir /var/lib/pac-keeper serve --auth --bind 127.0.0.1:8080
 - Put a reverse proxy with HTTPS in front, such as Caddy or nginx.
 - Every option can also be set in the environment: `PAC_DATA_DIR`, `PAC_BIND`, `PAC_AUTH=1`.
 
+### With Docker
+
+```sh
+docker build -t pac-keeper .
+docker run -d -p 127.0.0.1:8080:8080 -v pac-data:/data -e PAC_AUTH=1 pac-keeper
+docker exec -it <container> pac-keeper user add sam --role treasurer
+```
+
+The records live in the `/data` volume. Back it up.
+
+## The public demo
+
+`serve --demo` runs a public demo for the website:
+
+```sh
+pac-keeper --data-dir /var/lib/pac-keeper-demo serve --demo --bind 127.0.0.1:8080
+# or
+docker run -d -p 127.0.0.1:8080:8080 -e PAC_DEMO=1 pac-keeper
+```
+
+- It loads the example PAC, with dates moved forward so the data never looks old.
+- Sign-in is on. The sign-in page shows the public login: `demo` / `packeeper`.
+- The data resets every 60 minutes (`--demo-reset-minutes`, at least 5). A banner tells visitors.
+- File uploads are off, because anyone can use the demo. The import page offers a built-in sample statement instead.
+- A reset deletes every record, so demo mode refuses a data folder that holds real records. Use a separate folder or volume.
+
+The website links to `https://demo.packeeper.ca`. Put the demo behind HTTPS there, for example with Caddy:
+
+```
+demo.packeeper.ca {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+## The website
+
+`site/` is the static website for packeeper.ca: one HTML page and its images, with no build step. Upload the folder to any static host, such as Cloudflare Pages, Netlify, or GitHub Pages.
+
+- It links to the demo at `https://demo.packeeper.ca` and shows the demo login.
+- It names `hello@packeeper.ca` as the contact address.
+- The screenshots in `site/img/` come from the demo data. To refresh them, run the demo and capture the pages again.
+
 ## Command reference
 
 ```
-pac-keeper [--data-dir DIR] [serve [--bind ADDR] [--auth]]
+pac-keeper [--data-dir DIR] [serve [--bind ADDR] [--auth] [--demo [--demo-reset-minutes N]]]
 pac-keeper user add NAME [--role treasurer|viewer] [--name "Display name"]
 pac-keeper user list
 pac-keeper user remove NAME

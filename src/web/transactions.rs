@@ -501,6 +501,9 @@ pub async fn upload(
     mut multipart: Multipart,
 ) -> AppResult<Response> {
     require_edit(&user)?;
+    if let Some(refused) = super::no_uploads_in_demo(&state, &format!("/transactions/{id}")) {
+        return Ok(refused);
+    }
     let pool = &state.pool;
     let tx = ledger::get(pool, id).await?.ok_or(AppError::NotFound)?;
     let back = format!("/transactions/{id}");

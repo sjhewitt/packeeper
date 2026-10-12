@@ -43,6 +43,7 @@ header.top {
 header.top .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 17px; letter-spacing: .01em; white-space: nowrap; color: #fff; text-decoration: none; }
 header.top .brand img { display: block; border-radius: 7px; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
 header.top .org { font-size: 13px; color: #dbe7f1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.demo-banner { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid #f0dca6; padding: 8px 24px; font-size: 14px; text-align: center; }
 footer.app { max-width: 1240px; margin: 0 auto; padding: 8px 24px 28px; font-size: 12px; color: var(--muted); }
 footer.app a { color: var(--muted); }
 header.top nav { display: flex; gap: 2px; flex: 1; overflow-x: auto; }

@@ -37,6 +37,9 @@ cargo clippy --all-targets && cargo fmt
 - **The gaming report is bank basis:** it counts only `cleared = 1` transactions.
 - **GASR lines come from line items.** `line_items.gasr_line` holds a code from `models::GASR_INCOME_LINES` or `GASR_EXPENSE_LINES`. Codes `6`, `prize`, and `event_expense` also need `transactions.gaming_event_id`, which picks the licence row (lines 6–13) or the bingo / ticket raffle / other split (lines 19–26). Validate codes with `models::valid_gasr_line`.
 - **New starter line items** go in `db::seed` behind a new `SEED_VERSION`, so older databases get them once. Never seed line items in a migration: it stops the full seed on a new database.
+- **Demo mode** (`serve --demo`) wipes and reloads the data folder on a schedule. `demo::reset` refuses any folder that is not marked `demo_data` or empty. Keep that guard. Uploads are off in demo mode (`web::no_uploads_in_demo`); any new upload route needs the same check.
+- **Demo dates shift** by whole years from `demo::WRITTEN_ON`. Tests call `demo::load_shifted(.., 0)` so their fixed dates hold.
+- **`site/`** is the static marketing site. Its claims must match what the app does; check them when features change.
 - **Never edit an applied migration.** sqlx checks migration checksums. Add a new numbered file.
 - **Dates** are ISO text in SQLite and `chrono::NaiveDate` in Rust. Fiscal year dates are never hard-coded.
 

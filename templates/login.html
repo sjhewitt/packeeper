@@ -17,8 +17,17 @@
           <div class="muted small">{{ pac_name }}</div>
         </div>
       </div>
-      <p class="sub">Sign in to see the PAC's books.</p>
       {% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+      {% if let Some((user, password)) = demo_login %}
+      <p class="sub">This is the public demo, with a made-up PAC. Sign in as the demo treasurer:</p>
+      <dl class="facts" style="margin-bottom: 14px;"><dt>Username</dt><dd><code>{{ user }}</code></dd><dt>Password</dt><dd><code>{{ password }}</code></dd></dl>
+      <form method="post" action="/login">
+        <input type="hidden" name="username" value="{{ user }}">
+        <input type="hidden" name="password" value="{{ password }}">
+        <button>Open the demo</button>
+      </form>
+      {% else %}
+      <p class="sub">Sign in to see the PAC's books.</p>
       {% if no_users %}
       <div class="flash err">There are no users yet. On the server, run <code>pac-keeper user add NAME --role treasurer</code>.</div>
       {% endif %}
@@ -27,6 +36,7 @@
         <div class="field"><label for="password">Password</label><input type="password" id="password" name="password" autocomplete="current-password" required></div>
         <button>Sign in</button>
       </form>
+      {% endif %}
     </div>
   </main>
 </body>

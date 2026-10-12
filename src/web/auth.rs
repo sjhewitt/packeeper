@@ -94,12 +94,19 @@ struct LoginPage {
     pac_name: String,
     error: Option<String>,
     no_users: bool,
+    /// The public sign-in, shown on a demo server.
+    demo_login: Option<(&'static str, &'static str)>,
 }
 
 async fn login_view(state: &AppState, error: Option<String>) -> AppResult<Response> {
     let settings = Settings::load(&state.pool).await?;
     let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(&state.pool).await?;
-    render(LoginPage { pac_name: settings.pac_name, error, no_users: users == 0 })
+    render(LoginPage {
+        pac_name: settings.pac_name,
+        error,
+        no_users: users == 0,
+        demo_login: state.demo.map(|_| (crate::demo::DEMO_USERNAME, crate::demo::DEMO_PASSWORD)),
+    })
 }
 
 pub async fn login_page(State(state): State<AppState>) -> AppResult<Response> {

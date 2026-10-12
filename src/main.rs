@@ -44,6 +44,14 @@ enum Command {
         /// Require sign-in. Turn this on when the app runs on a server.
         #[arg(long, env = "PAC_AUTH", action = clap::ArgAction::SetTrue, value_parser = clap::builder::BoolishValueParser::new())]
         auth: bool,
+        /// Run a public demo: load the example PAC, show a public sign-in,
+        /// turn off file uploads, and reset the data on a schedule. Only runs
+        /// on a data folder that holds example data or nothing.
+        #[arg(long, env = "PAC_DEMO", action = clap::ArgAction::SetTrue, value_parser = clap::builder::BoolishValueParser::new())]
+        demo: bool,
+        /// Minutes between demo resets.
+        #[arg(long, env = "PAC_DEMO_RESET_MINUTES", default_value_t = 60, value_parser = clap::value_parser!(u32).range(5..))]
+        demo_reset_minutes: u32,
     },
     /// Manage sign-in users (for --auth).
     User {
@@ -103,37 +111,88 @@ async fn main() -> anyhow::Result<()> {
     db::seed(&pool).await?;
     fiscal::current(&pool).await?;
 
-    match cli.command.unwrap_or(Command::Serve { bind: "127.0.0.1:8080".parse()?, auth: false }) {
-        Command::Serve { bind, auth } => serve(pool, &cli.data_dir, bind, auth).await,
+    let default = Command::Serve { bind: "127.0.0.1:8080".parse()?, auth: false, demo: false, demo_reset_minutes: 60 };
+    match cli.command.unwrap_or(default) {
+        Command::Serve { bind, auth, demo, demo_reset_minutes } => {
+            let demo = demo.then_some(demo_reset_minutes);
+            serve(pool, &cli.data_dir, bind, auth, demo).await
+        }
         Command::User { command } => users(&pool, command).await,
         Command::Pdf { report, output } => pdf(&pool, report, output).await,
-        Command::Demo => demo::load(&pool, &cli.data_dir).await,
+        Command::Demo => {
+            demo::load(&pool, &cli.data_dir).await?;
+            println!("Loaded the example PAC. Start PAC Keeper with the same --data-dir and open it in a browser.");
+            Ok(())
+        }
     }
 }
 
-async fn serve(pool: sqlx::SqlitePool, data_dir: &Path, bind: SocketAddr, auth: bool) -> anyhow::Result<()> {
+/// `demo` is the number of minutes between demo resets, when this is a public demo.
+async fn serve(
+    pool: sqlx::SqlitePool,
+    data_dir: &Path,
+    bind: SocketAddr,
+    auth: bool,
+    demo: Option<u32>,
+) -> anyhow::Result<()> {
+    if let Some(minutes) = demo {
+        demo::reset(&pool, data_dir).await?;
+        let (pool, dir) = (pool.clone(), data_dir.to_path_buf());
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(std::time::Duration::from_secs(u64::from(minutes) * 60));
+            every.tick().await; // The first tick is immediate; the data is fresh already.
+            loop {
+                every.tick().await;
+                match demo::reset(&pool, &dir).await {
+                    Ok(()) => tracing::info!("demo data reset"),
+                    Err(e) => tracing::error!("demo reset failed: {e:#}"),
+                }
+            }
+        });
+    }
     let state = web::AppState {
         pool,
         data_dir: data_dir.to_path_buf(),
         renderer: Arc::new(reports::pdf::Renderer::new()),
-        auth,
+        pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
+        auth: auth || demo.is_some(),
+        demo,
         key: load_key(data_dir)?,
     };
     let app = web::router(state);
     let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
     println!("PAC Keeper is running at http://{bind}");
     println!("Data folder: {}", data_dir.canonicalize().unwrap_or(data_dir.to_path_buf()).display());
-    if !auth && !bind.ip().is_loopback() {
+    if let Some(minutes) = demo {
+        println!(
+            "Public demo: sign in as {} / {}. The data resets every {minutes} minutes.",
+            demo::DEMO_USERNAME,
+            demo::DEMO_PASSWORD
+        );
+    } else if !auth && !bind.ip().is_loopback() {
         println!(
             "Warning: sign-in is off but the app listens on {bind}. Anyone on the network can change the records. Use --auth."
         );
     }
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
     Ok(())
+}
+
+/// Ctrl-C, or SIGTERM from a container runtime.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut term =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("signal handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 /// The key that encrypts session cookies, made on first run.

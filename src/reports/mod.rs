@@ -428,7 +428,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let pool = db::open(&dir).await.unwrap();
         db::seed(&pool).await.unwrap();
-        crate::demo::load(&pool, &dir).await.unwrap();
+        // No year shift, so the assertions below can use fixed dates.
+        crate::demo::load_shifted(&pool, &dir, 0).await.unwrap();
         (pool, dir)
     }
 

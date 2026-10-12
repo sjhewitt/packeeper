@@ -4,7 +4,10 @@ use axum::response::{IntoResponse, Response};
 use axum_extra::extract::{Form, Query};
 use serde::Deserialize;
 
-use super::{AppError, AppResult, AppState, Flash, Layout, UserExt, redirect_err, redirect_ok, render, require_edit};
+use super::{
+    AppError, AppResult, AppState, Flash, Layout, UserExt, no_uploads_in_demo, redirect_err, redirect_ok, render,
+    require_edit,
+};
 use crate::db;
 use crate::import::csv::{self as csvimp, CsvMapping, DATE_FORMATS, RowError, Table};
 use crate::import::{self, BankRow, RowStatus, ofx};
@@ -43,6 +46,9 @@ pub async fn page(State(state): State<AppState>, user: UserExt, Query(flash): Qu
 
 pub async fn upload(State(state): State<AppState>, user: UserExt, mut multipart: Multipart) -> AppResult<Response> {
     require_edit(&user)?;
+    if let Some(refused) = no_uploads_in_demo(&state, "/import") {
+        return Ok(refused);
+    }
     let mut account_id = None;
     let mut file: Option<(String, Vec<u8>)> = None;
     while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
@@ -64,8 +70,30 @@ pub async fn upload(State(state): State<AppState>, user: UserExt, mut multipart:
     let Some((filename, bytes)) = file else {
         return Ok(redirect_err("/import", "Choose a file to import."));
     };
-    let format = if ofx::looks_like_ofx(&bytes) { "ofx" } else { "csv" };
-    let check = if format == "ofx" { ofx::parse(&bytes).map(|_| ()) } else { csvimp::read(&bytes).map(|_| ()) };
+    start_batch(&state, account_id, &filename, &bytes).await
+}
+
+/// On a public demo: import a small built-in statement into the general account.
+pub async fn sample(State(state): State<AppState>, user: UserExt) -> AppResult<Response> {
+    require_edit(&user)?;
+    if state.demo.is_none() {
+        return Err(AppError::NotFound);
+    }
+    let account_id: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM accounts WHERE kind = 'general' AND active = 1 ORDER BY id LIMIT 1")
+            .fetch_optional(&state.pool)
+            .await?;
+    let Some(account_id) = account_id else {
+        return Ok(redirect_err("/import", "The demo has no general account."));
+    };
+    let statement = crate::demo::sample_statement(chrono::Local::now().date_naive());
+    start_batch(&state, account_id, "sample-statement.qfx", statement.as_bytes()).await
+}
+
+/// Saves an uploaded bank file and opens its preview.
+async fn start_batch(state: &AppState, account_id: i64, filename: &str, bytes: &[u8]) -> AppResult<Response> {
+    let format = if ofx::looks_like_ofx(bytes) { "ofx" } else { "csv" };
+    let check = if format == "ofx" { ofx::parse(bytes).map(|_| ()) } else { csvimp::read(bytes).map(|_| ()) };
     if let Err(e) = check {
         return Ok(redirect_err("/import", &format!("Cannot read {filename}: {e}")));
     }
@@ -75,12 +103,12 @@ pub async fn upload(State(state): State<AppState>, user: UserExt, mut multipart:
     let stored_name = format!("{stamp}-{safe}");
     let dir = state.data_dir.join("imports");
     tokio::fs::create_dir_all(&dir).await?;
-    tokio::fs::write(dir.join(&stored_name), &bytes).await?;
+    tokio::fs::write(dir.join(&stored_name), bytes).await?;
     let id = sqlx::query(
         "INSERT INTO import_batches (account_id, filename, stored_name, format, created_at) VALUES (?, ?, ?, ?, ?)",
     )
     .bind(account_id)
-    .bind(&filename)
+    .bind(filename)
     .bind(&stored_name)
     .bind(format)
     .bind(db::now())

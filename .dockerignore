@@ -1,0 +1,12 @@
+target
+.git
+site
+*.pdf
+# Records: never copy a data folder into an image.
+data
+demo-data
+*/pac.db*
+*/secret.key
+*/receipts
+*/imports
+*/backups

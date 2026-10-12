@@ -68,6 +68,8 @@ fn pdf_response(bytes: Vec<u8>, filename: &str) -> Response {
 }
 
 async fn render_pdf(state: &AppState, template: &'static str, data: serde_json::Value) -> AppResult<Vec<u8>> {
+    // Wait for a free slot, so a burst of requests cannot use every CPU.
+    let _permit = state.pdf_permits.clone().acquire_owned().await.map_err(anyhow::Error::from)?;
     let renderer = state.renderer.clone();
     let bytes = tokio::task::spawn_blocking(move || renderer.render(template, &data)).await??;
     Ok(bytes)

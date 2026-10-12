@@ -1,21 +1,39 @@
 //! An example PAC with a year and a half of activity, for trying the app and
 //! for testing the reports. All names are made up.
 
-use chrono::NaiveDate;
+use chrono::{Datelike, Months, NaiveDate};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::db::{self, Settings};
 use crate::fiscal;
 
-fn d(s: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").expect("demo date")
+/// The demo data is written as of this date. Loading it later moves every
+/// date forward by whole years, so the demo never looks stale.
+const WRITTEN_ON: &str = "2026-10-12";
+
+/// Whole years to add so that the demo's last day falls on or before `today`.
+pub fn years_since_written(today: NaiveDate) -> u32 {
+    let written = NaiveDate::parse_from_str(WRITTEN_ON, "%Y-%m-%d").expect("demo date");
+    let mut years = 0;
+    while written + Months::new(12 * (years + 1)) <= today {
+        years += 1;
+    }
+    years
 }
 
 struct Demo<'a> {
     pool: &'a SqlitePool,
     receipts_dir: std::path::PathBuf,
     seq: i64,
+    years: u32,
+}
+
+impl Demo<'_> {
+    /// A demo date, moved forward by the demo's year shift.
+    fn date(&self, s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").expect("demo date") + Months::new(12 * self.years)
+    }
 }
 
 #[derive(Default)]
@@ -53,13 +71,14 @@ impl Demo<'_> {
         self.seq += 1;
         let cents = (amount * 100.0).round() as i64;
         let manual = o.cleared.is_some();
+        let when = self.date(date);
         let id = sqlx::query(
             "INSERT INTO transactions (account_id, date, description, payee, amount_cents, reference, purpose, source, bank_ref,
                cleared, gaming_event_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(account)
-        .bind(d(date))
+        .bind(when)
         .bind(desc)
         .bind(o.payee)
         .bind(cents)
@@ -84,8 +103,8 @@ impl Demo<'_> {
         }
         if o.receipt {
             let label = if o.payee.is_empty() { desc } else { o.payee };
-            let pdf = tiny_pdf(&format!("Receipt - {label} - {date} - ${:.2}", amount.abs()));
-            let stored = format!("{}/{}-demo-receipt.pdf", &date[..4], id);
+            let pdf = tiny_pdf(&format!("Receipt - {label} - {when} - ${:.2}", amount.abs()));
+            let stored = format!("{}/{}-demo-receipt.pdf", when.year(), id);
             let path = self.receipts_dir.join(&stored);
             std::fs::create_dir_all(path.parent().expect("parent"))?;
             std::fs::write(&path, &pdf)?;
@@ -94,7 +113,7 @@ impl Demo<'_> {
                  VALUES (?, ?, ?, 'application/pdf', ?, ?, ?)",
             )
             .bind(id)
-            .bind(format!("receipt-{date}.pdf"))
+            .bind(format!("receipt-{when}.pdf"))
             .bind(&stored)
             .bind(pdf.len() as i64)
             .bind(hex::encode(Sha256::digest(&pdf)))
@@ -149,11 +168,19 @@ fn tiny_pdf(text: &str) -> Vec<u8> {
     out
 }
 
+/// Loads the example PAC into an empty database, with dates moved up to today.
 pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Result<()> {
+    load_shifted(pool, data_dir, years_since_written(chrono::Local::now().date_naive())).await
+}
+
+/// Loads the example PAC with every date moved forward by `years`.
+pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: u32) -> anyhow::Result<()> {
     let existing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM accounts").fetch_one(pool).await?;
     if existing > 0 {
         anyhow::bail!("this data folder already has accounts; use an empty folder for the demo (--data-dir demo-data)");
     }
+    let mut demo = Demo { pool, receipts_dir: data_dir.join("receipts"), seq: 0, years };
+    let d = |s: &str| demo.date(s);
     Settings {
         pac_name: "Example Elementary PAC".into(),
         school_name: "Example Elementary School".into(),
@@ -168,14 +195,16 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
     .await?;
 
     let general = sqlx::query(
-        "INSERT INTO accounts (name, kind, account_number, opening_date, opening_balance_cents) VALUES ('General Chequing', 'general', '1234', '2025-07-01', 841237)",
+        "INSERT INTO accounts (name, kind, account_number, opening_date, opening_balance_cents) VALUES ('General Chequing', 'general', '1234', ?, 841237)",
     )
+    .bind(d("2025-07-01"))
     .execute(pool)
     .await?
     .last_insert_rowid();
     let gaming = sqlx::query(
-        "INSERT INTO accounts (name, kind, account_number, opening_date, opening_balance_cents) VALUES ('Gaming Account', 'gaming', '5678', '2025-07-01', 612055)",
+        "INSERT INTO accounts (name, kind, account_number, opening_date, opening_balance_cents) VALUES ('Gaming Account', 'gaming', '5678', ?, 612055)",
     )
+    .bind(d("2025-07-01"))
     .execute(pool)
     .await?
     .last_insert_rowid();
@@ -194,8 +223,6 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
         .bind(this.id)
         .execute(pool)
         .await?;
-
-    let mut demo = Demo { pool, receipts_dir: data_dir.join("receipts"), seq: 0 };
 
     let general_budget: &[(&str, f64)] = &[
         ("Fundraising – Hot lunch", 9000.0),
@@ -600,8 +627,10 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
     // A licensed ticket raffle: revenue in, a prize and a printing cost out.
     let raffle = sqlx::query(
         "INSERT INTO gaming_events (name, licence_number, licence_class, event_type, start_date, end_date, notes, created_at)
-         VALUES ('Spring raffle', 'D000000', 'D', 'ticket_raffle', '2026-04-01', '2026-05-15', 'Draw at the spring carnival.', ?)",
+         VALUES ('Spring raffle', 'D000000', 'D', 'ticket_raffle', ?, ?, 'Draw at the spring carnival.', ?)",
     )
+    .bind(demo.date("2026-04-01"))
+    .bind(demo.date("2026-05-15"))
     .bind(db::now())
     .execute(pool)
     .await?
@@ -674,6 +703,115 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
             .execute(pool)
             .await?;
     }
-    println!("Loaded the example PAC. Start PAC Keeper with the same --data-dir and open it in a browser.");
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").bind(DEMO_MARKER).execute(pool).await?;
     Ok(())
+}
+
+/// The public sign-in for a demo server. Anyone may use it.
+pub const DEMO_USERNAME: &str = "demo";
+pub const DEMO_PASSWORD: &str = "packeeper";
+
+/// Set in the settings of a database that holds only example data.
+const DEMO_MARKER: &str = "demo_data";
+
+/// True when the folder holds example data, or nothing yet. Only such a
+/// folder may be reset: a reset deletes every record.
+pub async fn is_demo_folder(pool: &SqlitePool) -> anyhow::Result<bool> {
+    let marked: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = ?").bind(DEMO_MARKER).fetch_optional(pool).await?;
+    if marked.as_deref() == Some("1") {
+        return Ok(true);
+    }
+    let records: i64 =
+        sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM accounts) + (SELECT COUNT(*) FROM transactions)")
+            .fetch_one(pool)
+            .await?;
+    Ok(records == 0)
+}
+
+/// Deletes every record and file, then loads the example PAC and the public
+/// demo sign-in again. Refuses to touch a folder with real records.
+pub async fn reset(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Result<()> {
+    if !is_demo_folder(pool).await? {
+        anyhow::bail!(
+            "{} holds real records. A demo server resets its data folder, so it only runs on a demo folder.",
+            data_dir.display()
+        );
+    }
+    // Children first, for the foreign keys.
+    for table in [
+        "allocations",
+        "attachments",
+        "rules",
+        "budget_amounts",
+        "transactions",
+        "import_batches",
+        "gaming_events",
+        "line_items",
+        "fiscal_years",
+        "accounts",
+        "settings",
+        "users",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}"))).execute(pool).await?;
+    }
+    for dir in ["receipts", "imports", "backups"] {
+        let path = data_dir.join(dir);
+        if path.exists() {
+            std::fs::remove_dir_all(&path)?;
+        }
+    }
+    db::seed(pool).await?;
+    load(pool, data_dir).await?;
+    crate::web::add_user(pool, DEMO_USERNAME, "Demo treasurer", DEMO_PASSWORD, "treasurer").await?;
+    Ok(())
+}
+
+/// A small bank statement for the demo's "sample statement" import. Dates are
+/// a few days before `today`, so a second import shows the rows as duplicates.
+pub fn sample_statement(today: NaiveDate) -> String {
+    let rows = [
+        (9, "-182.47", "POS PURCHASE COSTCO WHOLESALE #54"),
+        (7, "1065.00", "DEPOSIT MUNCH A LUNCH PAYOUT"),
+        (4, "40.00", "E-TRANSFER RECEIVED A PARENT"),
+        (2, "-5.00", "SERVICE CHARGE"),
+    ];
+    let mut trn = String::new();
+    for (days, amount, name) in rows {
+        let date = today - chrono::Days::new(days);
+        trn.push_str(&format!(
+            "<STMTTRN><TRNTYPE>{}<DTPOSTED>{}<TRNAMT>{amount}<FITID>SAMPLE-{}<NAME>{name}</STMTTRN>\n",
+            if amount.starts_with('-') { "DEBIT" } else { "CREDIT" },
+            date.format("%Y%m%d"),
+            date.format("%Y%m%d"),
+        ));
+    }
+    format!(
+        "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\n\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>CAD\n\
+         <BANKACCTFROM><BANKID>0000<ACCTID>00001234<ACCTTYPE>CHECKING</BANKACCTFROM>\n<BANKTRANLIST>\n{trn}</BANKTRANLIST>\n\
+         </STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn year_shift() {
+        let d = |s| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        assert_eq!(years_since_written(d("2026-10-12")), 0);
+        assert_eq!(years_since_written(d("2027-10-11")), 0);
+        assert_eq!(years_since_written(d("2027-10-12")), 1);
+        assert_eq!(years_since_written(d("2029-01-01")), 2);
+    }
+
+    #[test]
+    fn sample_statement_parses() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 12).unwrap();
+        let st = crate::import::ofx::parse(sample_statement(today).as_bytes()).unwrap();
+        assert_eq!(st.rows.len(), 4);
+        assert_eq!(st.rows[0].amount_cents, -18247);
+        assert_eq!(st.account_id, "00001234");
+    }
 }

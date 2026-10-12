@@ -34,7 +34,11 @@ pub struct AppState {
     pub pool: SqlitePool,
     pub data_dir: PathBuf,
     pub renderer: Arc<Renderer>,
+    /// PDF rendering is CPU-heavy; this caps how many run at once.
+    pub pdf_permits: Arc<tokio::sync::Semaphore>,
     pub auth: bool,
+    /// Minutes between resets when this is a public demo.
+    pub demo: Option<u32>,
     pub key: Key,
 }
 
@@ -59,6 +63,7 @@ pub fn router(state: AppState) -> Router {
         .route("/attachments/{id}", get(transactions::attachment))
         .route("/attachments/{id}/delete", post(transactions::delete_attachment))
         .route("/import", get(import::page).post(import::upload))
+        .route("/import/sample", post(import::sample))
         .route("/import/{id}", get(import::preview))
         .route("/import/{id}/table", post(import::preview_table))
         .route("/import/{id}/commit", post(import::commit))
@@ -127,6 +132,8 @@ pub struct Layout {
     pub user_name: Option<String>,
     pub flash_ok: Option<String>,
     pub flash_err: Option<String>,
+    /// Minutes between resets when this is a public demo.
+    pub demo: Option<u32>,
 }
 
 /// The product name and version, shown in the page footer.
@@ -146,6 +153,7 @@ impl Layout {
     pub fn app_url(&self) -> &'static str {
         APP_URL
     }
+
     pub async fn new(
         state: &AppState,
         user: &CurrentUser,
@@ -166,8 +174,14 @@ impl Layout {
                 .map(|u| if u.display_name.is_empty() { u.username.clone() } else { u.display_name.clone() }),
             flash_ok: flash.msg.clone().filter(|s| !s.is_empty()),
             flash_err: flash.err.clone().filter(|s| !s.is_empty()),
+            demo: state.demo,
         })
     }
+}
+
+/// Refuses file uploads on a public demo: anyone could store anything there.
+pub fn no_uploads_in_demo(state: &AppState, back: &str) -> Option<Response> {
+    state.demo.map(|_| redirect_err(back, "File uploads are off in the public demo."))
 }
 
 /// One-off messages carried in the query string after a redirect.
