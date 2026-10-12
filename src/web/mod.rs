@@ -90,6 +90,10 @@ pub fn router(state: AppState) -> Router {
         .route("/logout", post(auth::logout))
         .route("/static/app.css", get(|| async { static_file("text/css", include_str!("../../static/app.css")) }))
         .route(
+            "/static/logo.svg",
+            get(|| async { static_file("image/svg+xml", include_str!("../../static/logo.svg")) }),
+        )
+        .route(
             "/static/htmx.min.js",
             get(|| async { static_file("text/javascript", include_str!("../../static/htmx.min.js")) }),
         )
@@ -125,7 +129,23 @@ pub struct Layout {
     pub flash_err: Option<String>,
 }
 
+/// The product name and version, shown in the page footer.
+pub const APP_NAME: &str = "PAC Keeper";
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APP_URL: &str = "https://packeeper.ca";
+
 impl Layout {
+    pub fn app_name(&self) -> &'static str {
+        APP_NAME
+    }
+
+    pub fn app_version(&self) -> &'static str {
+        APP_VERSION
+    }
+
+    pub fn app_url(&self) -> &'static str {
+        APP_URL
+    }
     pub async fn new(
         state: &AppState,
         user: &CurrentUser,

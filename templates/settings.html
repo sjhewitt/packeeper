@@ -44,16 +44,16 @@
     <div class="panel">
       <h2>Data and backups</h2>
       <p class="small">All records live in one folder:<br><code>{{ data_dir }}</code></p>
-      <p class="small">It holds the database (<code>pac.db</code>), the receipts, and the bank files you imported. To hand over to the next treasurer, give them this folder and the app.</p>
+      <p class="small">It holds the database (<code>pac.db</code>), the receipts, and the bank files you imported. To hand over to the next treasurer, give them this folder and PAC Keeper.</p>
       <p><a class="button secondary" href="/settings/backup.zip">Download a backup (.zip)</a></p>
       <p class="small muted">Keep gaming grant records for at least 5 years after the year the money was spent.</p>
     </div>
     <div class="panel">
       <h2>Sign-in</h2>
       {% if auth %}
-      <p class="small">Sign-in is on. Add or change users on the server with<br><code>pac-finances user add NAME --role treasurer|viewer</code>.</p>
+      <p class="small">Sign-in is on. Add or change users on the server with<br><code>pac-keeper user add NAME --role treasurer|viewer</code>.</p>
       {% else %}
-      <p class="small">Sign-in is off: the app runs on this computer only. To share it with the executive, run it on a server with <code>pac-finances serve --auth</code>.</p>
+      <p class="small">Sign-in is off: the app runs on this computer only. To share it with the executive, run it on a server with <code>pac-keeper serve --auth</code>.</p>
       {% endif %}
     </div>
   </div>

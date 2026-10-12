@@ -1,4 +1,5 @@
-//! PAC Finances: bookkeeping and reports for a BC school Parent Advisory Committee.
+//! PAC Keeper: bookkeeping and reports for a BC school Parent Advisory Committee.
+//! <https://packeeper.ca>
 
 mod db;
 mod demo;
@@ -19,7 +20,12 @@ use axum_extra::extract::cookie::Key;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(version, about = "Bookkeeping and reports for a BC Parent Advisory Committee")]
+#[command(
+    name = "pac-keeper",
+    version,
+    about = "PAC Keeper: bookkeeping and reports for a BC Parent Advisory Committee",
+    after_help = "https://packeeper.ca"
+)]
 struct Cli {
     /// Folder for the database, receipts, and imported bank files.
     #[arg(long, env = "PAC_DATA_DIR", default_value = "data", global = true)]
@@ -115,7 +121,7 @@ async fn serve(pool: sqlx::SqlitePool, data_dir: &Path, bind: SocketAddr, auth: 
     };
     let app = web::router(state);
     let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
-    println!("PAC Finances is running at http://{bind}");
+    println!("PAC Keeper is running at http://{bind}");
     println!("Data folder: {}", data_dir.canonicalize().unwrap_or(data_dir.to_path_buf()).display());
     if !auth && !bind.ip().is_loopback() {
         println!(

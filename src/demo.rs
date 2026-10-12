@@ -674,6 +674,6 @@ pub async fn load(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Resu
             .execute(pool)
             .await?;
     }
-    println!("Loaded the example PAC. Start the app with the same --data-dir and open it in a browser.");
+    println!("Loaded the example PAC. Start PAC Keeper with the same --data-dir and open it in a browser.");
     Ok(())
 }

@@ -1,7 +1,9 @@
 [package]
-name = "pac-finances"
+name = "pac-keeper"
 version = "0.1.0"
 edition = "2024"
+description = "PAC Keeper: bookkeeping and reports for a BC school Parent Advisory Committee"
+homepage = "https://packeeper.ca"
 
 [dependencies]
 anyhow = "1.0.104"

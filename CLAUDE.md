@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project
 
-Bookkeeping and PDF reports for a BC school Parent Advisory Committee. Rust, axum, askama templates, htmx, SQLite through sqlx, and Typst built in for PDFs. One binary plus a data folder. It runs locally with no sign-in; `--auth` turns on sign-in for a hosted install.
+**PAC Keeper** (<https://packeeper.ca>; the binary is `pac-keeper`): bookkeeping and PDF reports for a BC school Parent Advisory Committee. Rust, axum, askama templates, htmx, SQLite through sqlx, and Typst built in for PDFs. One binary plus a data folder. It runs locally with no sign-in; `--auth` turns on sign-in for a hosted install.
 
 ## Commands
 

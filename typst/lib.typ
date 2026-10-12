@@ -11,7 +11,7 @@
 #let warn = rgb("#8a5a00")
 
 #let report(title: "", subtitle: "", body) = {
-  set document(title: title + " — " + data.org, author: data.prepared_by)
+  set document(title: title + " — " + data.org, author: data.prepared_by, keywords: ("PAC Keeper",))
   set page(
     paper: "us-letter",
     margin: (x: 0.7in, top: 0.85in, bottom: 0.8in),
@@ -27,7 +27,7 @@
       set text(8pt, fill: muted)
       grid(
         columns: (1fr, auto),
-        [Prepared #data.prepared_on#if data.prepared_by != "" [ by #data.prepared_by]],
+        [Prepared #data.prepared_on#if data.prepared_by != "" [ by #data.prepared_by] with PAC Keeper],
         counter(page).display("1 of 1", both: true),
       )
     },

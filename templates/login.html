@@ -3,17 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · {{ pac_name }}</title>
+  <title>Sign in · PAC Keeper</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <main style="max-width: 380px; margin-top: 10vh;">
     <div class="panel">
-      <h1>{{ pac_name }}</h1>
-      <p class="sub">Sign in to see the PAC finances.</p>
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom: 14px;">
+        <img src="/static/logo.svg" alt="" width="44" height="44" style="border-radius: 10px;">
+        <div>
+          <div style="font-size: 20px; font-weight: 700;">PAC Keeper</div>
+          <div class="muted small">{{ pac_name }}</div>
+        </div>
+      </div>
+      <p class="sub">Sign in to see the PAC's books.</p>
       {% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
       {% if no_users %}
-      <div class="flash err">There are no users yet. On the server, run <code>pac-finances user add NAME --role treasurer</code>.</div>
+      <div class="flash err">There are no users yet. On the server, run <code>pac-keeper user add NAME --role treasurer</code>.</div>
       {% endif %}
       <form method="post" action="/login">
         <div class="field"><label for="username">Username</label><input type="text" id="username" name="username" autocomplete="username" autofocus required></div>

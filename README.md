@@ -1,8 +1,10 @@
-# PAC Finances
+<img src="static/logo.svg" alt="" width="64" height="64">
 
-Bookkeeping and reports for a BC school Parent Advisory Committee (PAC).
+# PAC Keeper
 
-The app keeps the PAC's bank transactions, receipts, and budget in one place. It produces the monthly treasurer's report, the annual report for the AGM, the budget proposal, and a worksheet for the BC Community Gaming Grant *Gaming Account Summary Report*.
+Bookkeeping and reports for a BC school Parent Advisory Committee (PAC). <https://packeeper.ca>
+
+PAC Keeper keeps the PAC's bank transactions, receipts, and budget in one place. It produces the monthly treasurer's report, the annual report for the AGM, the budget proposal, and a worksheet for the BC Community Gaming Grant *Gaming Account Summary Report*.
 
 It is one program and one data folder. It runs on the treasurer's computer. It can run on a server later, with sign-in for the executive.
 
@@ -35,20 +37,20 @@ You need [Rust](https://rustup.rs).
 
 ```sh
 cargo build --release
-./target/release/pac-finances
+./target/release/pac-keeper
 ```
 
 Open <http://127.0.0.1:8080>. The records go in the `data` folder in the current directory. Use `--data-dir` to put them somewhere else, such as a synced or backed-up folder:
 
 ```sh
-./target/release/pac-finances --data-dir ~/Documents/PAC-Finances
+./target/release/pac-keeper --data-dir ~/Documents/PAC-Keeper
 ```
 
 ### Try it with example data
 
 ```sh
-./target/release/pac-finances --data-dir demo-data demo
-./target/release/pac-finances --data-dir demo-data
+./target/release/pac-keeper --data-dir demo-data demo
+./target/release/pac-keeper --data-dir demo-data
 ```
 
 The example PAC has a year and a half of activity, both kinds of account, a gaming reimbursement, and a cheque that has not cleared.
@@ -98,9 +100,9 @@ The gaming grant conditions require you to keep receipts and bank statements for
 Sign-in is off by default, because the app runs on one computer. To share it with the executive, run it on a server with sign-in on:
 
 ```sh
-pac-finances --data-dir /var/lib/pac-finances user add sam --role treasurer --name "Sam Rivera"
-pac-finances --data-dir /var/lib/pac-finances user add chair --role viewer
-pac-finances --data-dir /var/lib/pac-finances serve --auth --bind 127.0.0.1:8080
+pac-keeper --data-dir /var/lib/pac-keeper user add sam --role treasurer --name "Sam Rivera"
+pac-keeper --data-dir /var/lib/pac-keeper user add chair --role viewer
+pac-keeper --data-dir /var/lib/pac-keeper serve --auth --bind 127.0.0.1:8080
 ```
 
 - A **treasurer** can change records. A **viewer** can see everything and open reports, but cannot change anything or download backups.
@@ -111,15 +113,15 @@ pac-finances --data-dir /var/lib/pac-finances serve --auth --bind 127.0.0.1:8080
 ## Command reference
 
 ```
-pac-finances [--data-dir DIR] [serve [--bind ADDR] [--auth]]
-pac-finances user add NAME [--role treasurer|viewer] [--name "Display name"]
-pac-finances user list
-pac-finances user remove NAME
-pac-finances pdf monthly 2026-09 [-o file.pdf]
-pac-finances pdf annual [2025-26] [-o file.pdf]
-pac-finances pdf budget [2026-27] [-o file.pdf]
-pac-finances pdf gaming [2025-26] [-o file.pdf]
-pac-finances demo
+pac-keeper [--data-dir DIR] [serve [--bind ADDR] [--auth]]
+pac-keeper user add NAME [--role treasurer|viewer] [--name "Display name"]
+pac-keeper user list
+pac-keeper user remove NAME
+pac-keeper pdf monthly 2026-09 [-o file.pdf]
+pac-keeper pdf annual [2025-26] [-o file.pdf]
+pac-keeper pdf budget [2026-27] [-o file.pdf]
+pac-keeper pdf gaming [2025-26] [-o file.pdf]
+pac-keeper demo
 ```
 
 ## Gaming grant rules used

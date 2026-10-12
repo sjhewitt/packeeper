@@ -106,7 +106,7 @@ pub async fn backup(State(state): State<AppState>, user: UserExt) -> AppResult<R
     let snap = snapshot.clone();
     let bytes = tokio::task::spawn_blocking(move || build_zip(&data_dir, &snap)).await??;
     let _ = tokio::fs::remove_file(&snapshot).await;
-    let filename = format!("pac-finances-backup-{stamp}.zip");
+    let filename = format!("pac-keeper-backup-{stamp}.zip");
     Ok((
         [
             (header::CONTENT_TYPE, "application/zip".to_string()),
