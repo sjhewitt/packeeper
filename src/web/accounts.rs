@@ -1,14 +1,14 @@
 //! Set-up pages: bank accounts, line items, and assignment rules.
 
 use askama::Template;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::Path as UrlPath;
 use axum::response::Response;
 use axum_extra::extract::{Form, Query};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
 use super::{
-    AppError, AppResult, AppState, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
+    AppError, AppResult, Ctx, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
 };
 use crate::db;
 use crate::models::{Account, GASR_EXPENSE_LINES, GASR_INCOME_LINES, LineItem, Rule, valid_gasr_line};
@@ -22,7 +22,7 @@ struct AccountsPage {
     today: NaiveDate,
 }
 
-pub async fn list(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn list(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let today = chrono::Local::now().date_naive();
     let mut accounts = Vec::new();
     for a in db::accounts(&state.pool).await? {
@@ -64,7 +64,7 @@ fn parse_account(f: &AccountForm) -> Result<ParsedAccount, String> {
     Ok(ParsedAccount { date, balance })
 }
 
-pub async fn create(State(state): State<AppState>, user: UserExt, Form(f): Form<AccountForm>) -> AppResult<Response> {
+pub async fn create(state: Ctx, user: UserExt, Form(f): Form<AccountForm>) -> AppResult<Response> {
     require_edit(&user)?;
     let p = match parse_account(&f) {
         Ok(p) => p,
@@ -100,7 +100,7 @@ struct AccountEditPage {
 }
 
 pub async fn edit(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Query(flash): Query<Flash>,
@@ -118,7 +118,7 @@ pub async fn edit(
 }
 
 pub async fn update(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<AccountForm>,
@@ -170,11 +170,7 @@ struct LineItemsPage {
     expense_lines: Vec<(&'static str, &'static str)>,
 }
 
-pub async fn line_items(
-    State(state): State<AppState>,
-    user: UserExt,
-    Query(flash): Query<Flash>,
-) -> AppResult<Response> {
+pub async fn line_items(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let counts: Vec<(i64, i64)> =
         sqlx::query_as("SELECT line_item_id, COUNT(*) FROM allocations GROUP BY line_item_id")
             .fetch_all(&state.pool)
@@ -207,11 +203,7 @@ pub struct LineItemForm {
     receipt_required: Option<String>,
 }
 
-pub async fn create_line_item(
-    State(state): State<AppState>,
-    user: UserExt,
-    Form(f): Form<LineItemForm>,
-) -> AppResult<Response> {
+pub async fn create_line_item(state: Ctx, user: UserExt, Form(f): Form<LineItemForm>) -> AppResult<Response> {
     require_edit(&user)?;
     let name = f.name.trim();
     if name.is_empty() {
@@ -254,7 +246,7 @@ struct LineItemEditPage {
 }
 
 pub async fn edit_line_item(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Query(flash): Query<Flash>,
@@ -282,7 +274,7 @@ pub async fn edit_line_item(
 }
 
 pub async fn update_line_item(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<LineItemForm>,
@@ -336,7 +328,7 @@ struct RulesPage {
     line_items: Vec<LineItem>,
 }
 
-pub async fn rules(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn rules(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let rules: Vec<Rule> = sqlx::query_as("SELECT * FROM rules ORDER BY pattern").fetch_all(&state.pool).await?;
     let accounts = db::accounts(&state.pool).await?;
     let line_items = db::line_items(&state.pool).await?;
@@ -368,7 +360,7 @@ pub struct RuleForm {
     payee: String,
 }
 
-pub async fn create_rule(State(state): State<AppState>, user: UserExt, Form(f): Form<RuleForm>) -> AppResult<Response> {
+pub async fn create_rule(state: Ctx, user: UserExt, Form(f): Form<RuleForm>) -> AppResult<Response> {
     require_edit(&user)?;
     if f.pattern.trim().len() < 3 {
         return Ok(redirect_err("/rules", "The text to match must be at least 3 characters."));
@@ -393,11 +385,7 @@ pub async fn create_rule(State(state): State<AppState>, user: UserExt, Form(f): 
     Ok(redirect_ok("/rules", &format!("Rule added. It assigned {applied} uncategorized transaction(s).")))
 }
 
-pub async fn delete_rule(
-    State(state): State<AppState>,
-    user: UserExt,
-    UrlPath(id): UrlPath<i64>,
-) -> AppResult<Response> {
+pub async fn delete_rule(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     require_edit(&user)?;
     sqlx::query("DELETE FROM rules WHERE id = ?").bind(id).execute(&state.pool).await?;
     Ok(redirect_ok("/rules", "Rule deleted."))

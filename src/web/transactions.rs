@@ -2,7 +2,7 @@ use std::path::Path;
 
 use askama::Template;
 use axum::body::Body;
-use axum::extract::{Multipart, Path as UrlPath, State};
+use axum::extract::{Multipart, Path as UrlPath};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::{Form, Query};
@@ -11,7 +11,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    AppError, AppResult, AppState, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
+    AppError, AppResult, Ctx, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
 };
 use crate::db;
 use crate::fiscal;
@@ -69,7 +69,7 @@ fn flag(v: &Option<String>) -> bool {
     matches!(v.as_deref(), Some("1" | "on" | "true"))
 }
 
-pub async fn list(State(state): State<AppState>, user: UserExt, Query(q): Query<ListQuery>) -> AppResult<Response> {
+pub async fn list(state: Ctx, user: UserExt, Query(q): Query<ListQuery>) -> AppResult<Response> {
     let pool = &state.pool;
     let years = fiscal::list(pool).await?;
     let current = fiscal::current(pool).await?;
@@ -139,7 +139,7 @@ pub struct AssignForm {
 
 /// Inline line item change from the list. Returns the updated row.
 pub async fn assign(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(form): Form<AssignForm>,
@@ -187,7 +187,7 @@ impl DetailPage {
 }
 
 pub async fn detail(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Query(flash): Query<Flash>,
@@ -280,7 +280,7 @@ pub struct UpdateForm {
 }
 
 pub async fn update(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<UpdateForm>,
@@ -352,7 +352,7 @@ pub struct SplitForm {
 }
 
 pub async fn set_allocations(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<SplitForm>,
@@ -402,7 +402,7 @@ struct NewPage {
     today: NaiveDate,
 }
 
-pub async fn new_form(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn new_form(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     require_edit(&user)?;
     let pool = &state.pool;
     render(NewPage {
@@ -429,7 +429,7 @@ pub struct NewForm {
     cleared: Option<String>,
 }
 
-pub async fn create(State(state): State<AppState>, user: UserExt, Form(f): Form<NewForm>) -> AppResult<Response> {
+pub async fn create(state: Ctx, user: UserExt, Form(f): Form<NewForm>) -> AppResult<Response> {
     require_edit(&user)?;
     let pool = &state.pool;
     let back = "/transactions/new";
@@ -475,7 +475,7 @@ pub async fn create(State(state): State<AppState>, user: UserExt, Form(f): Form<
     Ok(redirect_ok(&format!("/transactions/{id}"), "Transaction added. Attach the receipt below."))
 }
 
-pub async fn delete(State(state): State<AppState>, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
+pub async fn delete(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     require_edit(&user)?;
     let pool = &state.pool;
     let attachments = ledger::attachments(pool, id).await?;
@@ -495,7 +495,7 @@ fn safe_filename(name: &str) -> String {
 }
 
 pub async fn upload(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     mut multipart: Multipart,
@@ -521,6 +521,19 @@ pub async fn upload(
         let bytes = field.bytes().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
         if bytes.is_empty() {
             continue;
+        }
+        // On a hosted server, each PAC has a storage limit for receipts.
+        if let Some(h) = &state.hosted {
+            let used = crate::hosted::Hosted::storage_used(pool).await?;
+            if used + bytes.len() as i64 > h.hosted.quota_bytes {
+                return Ok(redirect_err(
+                    &back,
+                    &format!(
+                        "This PAC has used its {} MB of receipt storage. Remove old files, or ask us for more room.",
+                        h.hosted.quota_bytes / (1024 * 1024)
+                    ),
+                ));
+            }
         }
         let sha = hex::encode(Sha256::digest(&bytes));
         let stored_name = format!("{}/{}-{}-{}", tx.date.format("%Y"), id, &sha[..8], safe_filename(&filename));
@@ -552,7 +565,7 @@ pub async fn upload(
 
 /// Serves a receipt. Only images and PDFs open in the browser; anything else
 /// downloads, so an uploaded web page cannot run in the app.
-pub async fn attachment(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
+pub async fn attachment(state: Ctx, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     let a: Attachment = sqlx::query_as("SELECT * FROM attachments WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.pool)
@@ -576,11 +589,7 @@ pub async fn attachment(State(state): State<AppState>, UrlPath(id): UrlPath<i64>
         .into_response())
 }
 
-pub async fn delete_attachment(
-    State(state): State<AppState>,
-    user: UserExt,
-    UrlPath(id): UrlPath<i64>,
-) -> AppResult<Response> {
+pub async fn delete_attachment(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     require_edit(&user)?;
     let a: Attachment = sqlx::query_as("SELECT * FROM attachments WHERE id = ?")
         .bind(id)
@@ -602,7 +611,7 @@ pub struct RuleForm {
 }
 
 pub async fn make_rule(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<RuleForm>,
@@ -665,7 +674,7 @@ pub struct ReimburseForm {
 }
 
 pub async fn set_reimbursements(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<ReimburseForm>,

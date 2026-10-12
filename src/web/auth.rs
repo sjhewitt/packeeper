@@ -1,11 +1,12 @@
-//! Sign-in for hosted mode. In local mode (the default) there is no sign-in
-//! and everyone can edit.
+//! Sign-in. A single-PAC server has its own users (with --auth) or no sign-in
+//! at all (local mode, where everyone can edit). A hosted server signs people
+//! in by email; see `web::hosted`.
 
 use argon2::password_hash::phc::PasswordHash;
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use askama::Template;
 use axum::extract::{Request, State};
-use axum::http::Method;
+use axum::http::{Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::Form;
@@ -13,7 +14,7 @@ use axum_extra::extract::cookie::{Cookie, PrivateCookieJar, SameSite};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-use super::{AppError, AppResult, AppState, CurrentUser, render};
+use super::{AppError, AppResult, AppState, Ctx, CurrentUser, render};
 use crate::db::{self, Settings};
 use crate::models::User;
 
@@ -25,7 +26,7 @@ pub fn hash_password(password: &str) -> anyhow::Result<String> {
     Ok(hash.to_string())
 }
 
-fn verify_password(password: &str, stored: &str) -> bool {
+pub fn verify_password(password: &str, stored: &str) -> bool {
     match PasswordHash::new(stored) {
         Ok(hash) => Argon2::default().verify_password(password.as_bytes(), &hash).is_ok(),
         Err(_) => false,
@@ -58,10 +59,38 @@ pub async fn add_user(
     Ok(())
 }
 
-/// Puts the current user on every request. When auth is on, sends visitors
-/// without a session to the sign-in page and blocks edits by viewers.
-pub async fn guard(State(state): State<AppState>, jar: PrivateCookieJar, mut req: Request, next: Next) -> Response {
-    if !state.auth {
+/// A form post must come from this site. Browsers send Origin on every POST,
+/// so a post from another site cannot act for a signed-in person.
+fn same_site_request(req: &Request) -> bool {
+    if matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS) {
+        return true;
+    }
+    let host = req.headers().get(header::HOST).and_then(|h| h.to_str().ok());
+    let origin =
+        req.headers().get(header::ORIGIN).or_else(|| req.headers().get(header::REFERER)).and_then(|h| h.to_str().ok());
+    match (origin, host) {
+        (Some(origin), Some(host)) => {
+            let rest = origin.split_once("://").map(|(_, r)| r).unwrap_or(origin);
+            rest.split('/').next() == Some(host)
+        }
+        // Not a browser form post (for example, a script on this machine).
+        (None, _) => true,
+        (Some(_), None) => false,
+    }
+}
+
+/// Runs before every route. It decides who is signed in and which PAC the
+/// request works on, and puts both on the request.
+pub async fn guard(State(app): State<AppState>, jar: PrivateCookieJar, mut req: Request, next: Next) -> Response {
+    if (app.auth || app.hosted.is_some()) && !same_site_request(&req) {
+        return AppError::Forbidden.into_response();
+    }
+    if let Some(hosted) = app.hosted.clone() {
+        return super::hosted::guard(app, hosted, jar, req, next).await;
+    }
+    let single = app.single.clone().expect("a single-PAC server has its PAC");
+    req.extensions_mut().insert(Ctx::new(&app, single.pool.clone(), single.data_dir.clone(), None));
+    if !app.auth {
         req.extensions_mut().insert(CurrentUser(None));
         return next.run(req).await;
     }
@@ -73,7 +102,7 @@ pub async fn guard(State(state): State<AppState>, jar: PrivateCookieJar, mut req
     let user: Option<User> = match jar.get(COOKIE).and_then(|c| c.value().parse::<i64>().ok()) {
         Some(id) => sqlx::query_as("SELECT * FROM users WHERE id = ?")
             .bind(id)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&single.pool)
             .await
             .unwrap_or(None),
         None => None,
@@ -98,38 +127,48 @@ struct LoginPage {
     demo_login: Option<(&'static str, &'static str)>,
 }
 
-async fn login_view(state: &AppState, error: Option<String>) -> AppResult<Response> {
-    let settings = Settings::load(&state.pool).await?;
-    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(&state.pool).await?;
+async fn login_view(app: &AppState, error: Option<String>) -> AppResult<Response> {
+    let pool = &app.single.as_ref().expect("single-PAC server").pool;
+    let settings = Settings::load(pool).await?;
+    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(pool).await?;
     render(LoginPage {
         pac_name: settings.pac_name,
         error,
         no_users: users == 0,
-        demo_login: state.demo.map(|_| (crate::demo::DEMO_USERNAME, crate::demo::DEMO_PASSWORD)),
+        demo_login: app.demo.map(|_| (crate::demo::DEMO_USERNAME, crate::demo::DEMO_PASSWORD)),
     })
 }
 
-pub async fn login_page(State(state): State<AppState>) -> AppResult<Response> {
-    if !state.auth {
+pub async fn login_page(State(app): State<AppState>, jar: PrivateCookieJar) -> AppResult<Response> {
+    if app.hosted.is_some() {
+        return super::hosted::login_page(&app, jar, None).await;
+    }
+    if !app.auth {
         return Ok(Redirect::to("/").into_response());
     }
-    login_view(&state, None).await
+    login_view(&app, None).await
 }
 
 #[derive(Deserialize)]
 pub struct LoginForm {
+    #[serde(alias = "email")]
     username: String,
     password: String,
 }
 
 pub async fn login(
-    State(state): State<AppState>,
+    State(app): State<AppState>,
     jar: PrivateCookieJar,
+    headers: axum::http::HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> AppResult<Response> {
+    if let Some(hosted) = app.hosted.clone() {
+        return super::hosted::login(&app, &hosted, jar, &headers, &form.username, &form.password).await;
+    }
+    let pool = &app.single.as_ref().expect("single-PAC server").pool;
     let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE username = ?")
         .bind(form.username.trim())
-        .fetch_optional(&state.pool)
+        .fetch_optional(pool)
         .await?;
     match user {
         Some(u) if verify_password(&form.password, &u.password_hash) => {
@@ -141,14 +180,15 @@ pub async fn login(
                 .build();
             Ok((jar.add(cookie), Redirect::to("/")).into_response())
         }
-        _ => login_view(&state, Some("The username or password is wrong.".into())).await,
+        _ => login_view(&app, Some("The username or password is wrong.".into())).await,
     }
 }
 
-fn time_days(days: i64) -> time::Duration {
+pub fn time_days(days: i64) -> time::Duration {
     time::Duration::days(days)
 }
 
 pub async fn logout(jar: PrivateCookieJar) -> impl IntoResponse {
-    (jar.remove(Cookie::build(COOKIE).path("/")), Redirect::to("/login"))
+    let jar = jar.remove(Cookie::build(COOKIE).path("/")).remove(Cookie::build(super::hosted::COOKIE).path("/"));
+    (jar, Redirect::to("/login"))
 }

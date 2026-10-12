@@ -5,13 +5,13 @@
 use std::collections::HashMap;
 
 use askama::Template;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::Path as UrlPath;
 use axum::response::Response;
 use axum_extra::extract::{Form, Query};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
-use super::{AppError, AppResult, AppState, Flash, Layout, UserExt, redirect_err, redirect_ok, render, require_edit};
+use super::{AppError, AppResult, Ctx, Flash, Layout, UserExt, redirect_err, redirect_ok, render, require_edit};
 use crate::db;
 use crate::ledger::{self, Filter, TxRow};
 use crate::models::{EVENT_TYPES, GamingEvent, LICENCE_CLASSES};
@@ -27,7 +27,7 @@ struct EventsPage {
     today: NaiveDate,
 }
 
-pub async fn list(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn list(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let mut totals: HashMap<i64, EventTotals> = gaming::event_totals(&state.pool).await?;
     let events = db::gaming_events(&state.pool)
         .await?
@@ -89,7 +89,7 @@ fn validate(f: &EventForm) -> Result<Valid, String> {
     Ok(Valid { start, end })
 }
 
-pub async fn create(State(state): State<AppState>, user: UserExt, Form(f): Form<EventForm>) -> AppResult<Response> {
+pub async fn create(state: Ctx, user: UserExt, Form(f): Form<EventForm>) -> AppResult<Response> {
     require_edit(&user)?;
     let v = match validate(&f) {
         Ok(v) => v,
@@ -129,7 +129,7 @@ struct EventPage {
 }
 
 pub async fn edit(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Query(flash): Query<Flash>,
@@ -149,7 +149,7 @@ pub async fn edit(
 }
 
 pub async fn update(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(f): Form<EventForm>,
@@ -180,7 +180,7 @@ pub async fn update(
 }
 
 /// Deletes an event that no transaction uses.
-pub async fn delete(State(state): State<AppState>, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
+pub async fn delete(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     require_edit(&user)?;
     let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transactions WHERE gaming_event_id = ?")
         .bind(id)

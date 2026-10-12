@@ -1,0 +1,65 @@
+{% extends "hosted/public.html" %}
+{% block title %}Operator{% endblock %}
+{% block width %}wide{% endblock %}
+{% block content %}
+<div class="page-head" style="margin-bottom: 8px;">
+  <div><h1>Operator</h1><p class="sub">PACs on this server</p></div>
+  <div class="actions"><a class="small" href="/pacs">Your PACs</a></div>
+</div>
+{% if let Some(m) = msg %}<div class="flash ok">{{ m }}</div>{% endif %}
+
+<h2>Waiting for approval ({{ requested.len() }})</h2>
+{% if requested.is_empty() %}<p class="muted">No requests.</p>{% else %}
+<table>
+  <thead><tr><th>PAC</th><th>Requested by</th><th>Message</th><th>Sent</th><th></th></tr></thead>
+  <tbody>
+  {% for r in requested %}
+    <tr>
+      <td><strong>{{ r.pac.name }}</strong><br><span class="small muted">{{ r.pac.school }}{% if !r.pac.district.is_empty() %} · {{ r.pac.district }}{% endif %}</span></td>
+      <td>{% if let Some(p) = r.requester %}{{ p.name }}<br><span class="small muted">{{ p.email }}</span>{% endif %}</td>
+      <td class="small">{{ r.pac.message }}</td>
+      <td class="nowrap small">{{ r.pac.created_at }}</td>
+      <td class="nowrap">
+        <form method="post" action="/operator/pacs/{{ r.pac.id }}/approve" class="inline"><button class="small">Approve</button></form>
+        <form method="post" action="/operator/pacs/{{ r.pac.id }}/reject" class="inline" data-confirm="Reject {{ r.pac.name }}?" onsubmit="return confirm(this.dataset.confirm)"><button class="danger small">Reject</button></form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Active ({{ active.len() }})</h2>
+{% if active.is_empty() %}<p class="muted">No active PACs.</p>{% else %}
+<table>
+  <thead><tr><th>PAC</th><th class="num">Members</th><th class="num">Storage</th><th>Approved</th><th></th></tr></thead>
+  <tbody>
+  {% for r in active %}
+    <tr>
+      <td><strong>{{ r.pac.name }}</strong><br><span class="small muted">{{ r.pac.school }}</span></td>
+      <td class="num">{{ r.members }}</td>
+      <td class="num">{{ r.storage }}</td>
+      <td class="nowrap small">{% if let Some(d) = r.pac.decided_at %}{{ d }}{% endif %}</td>
+      <td><form method="post" action="/operator/pacs/{{ r.pac.id }}/suspend" class="inline" data-confirm="Suspend {{ r.pac.name }}? Its members cannot open it until you reactivate it." onsubmit="return confirm(this.dataset.confirm)"><button class="danger small">Suspend</button></form></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if !other.is_empty() %}
+<h2>Suspended or rejected ({{ other.len() }})</h2>
+<table>
+  <tbody>
+  {% for r in other %}
+    <tr>
+      <td><strong>{{ r.pac.name }}</strong><br><span class="small muted">{{ r.pac.school }}</span></td>
+      <td>{{ r.pac.status }}</td>
+      <td class="num">{{ r.storage }}</td>
+      <td><form method="post" action="/operator/pacs/{{ r.pac.id }}/reactivate" class="inline"><button class="secondary small">Activate</button></form></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -1,9 +1,8 @@
 use askama::Template;
-use axum::extract::State;
 use axum::response::Response;
 use axum_extra::extract::Query;
 
-use super::{AppResult, AppState, Flash, Layout, UserExt, render};
+use super::{AppResult, Ctx, Flash, Layout, UserExt, render};
 use crate::fiscal;
 use crate::ledger::{self, Filter, TxRow};
 use crate::models::FiscalYear;
@@ -24,7 +23,7 @@ struct Page {
     has_gaming: bool,
 }
 
-pub async fn page(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let pool = &state.pool;
     let today = chrono::Local::now().date_naive();
     let fy = fiscal::current(pool).await?;

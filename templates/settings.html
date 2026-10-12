@@ -43,14 +43,21 @@
     </div>
     <div class="panel">
       <h2>Data and backups</h2>
+      {% if hosted %}
+      <p class="small">PAC Keeper keeps your PAC's records in their own database, apart from every other PAC. You can download all of them at any time: the database, the receipts, and the bank files you imported. The download also opens in your own copy of PAC Keeper.</p>
+      <p><a class="button secondary" href="/settings/backup.zip">Download all records (.zip)</a></p>
+      {% else %}
       <p class="small">All records live in one folder:<br><code>{{ data_dir }}</code></p>
       <p class="small">It holds the database (<code>pac.db</code>), the receipts, and the bank files you imported. To hand over to the next treasurer, give them this folder and PAC Keeper.</p>
       <p><a class="button secondary" href="/settings/backup.zip">Download a backup (.zip)</a></p>
+      {% endif %}
       <p class="small muted">Keep gaming grant records for at least 5 years after the year the money was spent.</p>
     </div>
     <div class="panel">
       <h2>Sign-in</h2>
-      {% if auth %}
+      {% if hosted %}
+      <p class="small">Treasurers manage who can open these books. <a href="/members">Members and invitations</a></p>
+      {% else if auth %}
       <p class="small">Sign-in is on. Add or change users on the server with<br><code>pac-keeper user add NAME --role treasurer|viewer</code>.</p>
       {% else %}
       <p class="small">Sign-in is off: the app runs on this computer only. To share it with the executive, run it on a server with <code>pac-keeper serve --auth</code>.</p>

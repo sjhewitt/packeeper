@@ -120,6 +120,43 @@ docker exec -it <container> pac-keeper user add sam --role treasurer
 
 The records live in the `/data` volume. Back it up.
 
+## Hosting many PACs
+
+`serve --hosted` runs one server for many PACs. PACs request an account on the sign-up page, you approve them, and each PAC's executive signs in by email.
+
+```sh
+pac-keeper --data-dir /var/lib/pac-keeper-hosted operator you@example.org --name "Your Name"
+PAC_SMTP_URL='smtps://USER:PASSWORD@smtp.example.com:465' \
+PAC_MAIL_FROM='PAC Keeper <hello@packeeper.ca>' \
+pac-keeper --data-dir /var/lib/pac-keeper-hosted serve --hosted \
+  --base-url https://app.packeeper.ca --bind 127.0.0.1:8080
+```
+
+How it works:
+
+- **One database per PAC.** The data folder holds `control.db` (the PACs, the people, and their memberships) and a folder for each PAC under `pacs/`. Each PAC folder is laid out exactly like a single-PAC data folder, so one PAC's records cannot appear in another PAC's pages. A PAC that leaves takes its zip from **Settings** and can run PAC Keeper itself.
+- **Joining.** A treasurer fills in `/signup` and confirms their email. The request appears on `/operator`, and the operator gets an email. When you approve it, the treasurer gets an email that the PAC is ready.
+- **People.** Everyone signs in by email. One person can belong to several PACs and switch between them. Treasurers invite the executive from **Settings → Members**, as treasurers or viewers. A PAC always keeps at least one treasurer. Forgotten passwords are reset by email, and a reset signs out every other session.
+- **Operators.** `pac-keeper operator EMAIL` makes someone an operator. Operators approve, reject, suspend, and reactivate PACs on `/operator`.
+- **Limits.** Sign-in attempts, sign-ups, password resets, and invitations are rate-limited. Each PAC may store 1 GB of receipts (`--quota-mb`). Form posts from other sites are refused. Cookies are marked secure when `--base-url` starts with `https://`.
+- **Email.** Set `PAC_SMTP_URL` and `PAC_MAIL_FROM` for any SMTP provider. Without them, each email is written to `outbox/` in the data folder, which is useful for testing.
+
+Run it behind HTTPS, with Caddy for example:
+
+```
+app.packeeper.ca {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+With Docker: `docker run -d -p 127.0.0.1:8080:8080 -v pac-hosted:/data -e PAC_HOSTED=1 -e PAC_BASE_URL=https://app.packeeper.ca -e PAC_SMTP_URL=... -e PAC_MAIL_FROM=... pac-keeper`
+
+**Backups are your job as the operator.** `pac-keeper --data-dir DIR backup --to BACKUP_DIR` copies every database, receipt, and bank file into a dated folder. It is safe while the server runs. Run it every night (from cron or a systemd timer), copy the result off the server (for example with `rclone` to encrypted storage), and test a restore. Before you take real PAC data, also:
+
+- host the server in Canada if you promise Canadian data residency
+- publish a privacy policy and terms of service
+- get advice on your obligations under BC's privacy law (PIPA)
+
 ## The public demo
 
 `serve --demo` runs a public demo for the website:
@@ -156,6 +193,9 @@ demo.packeeper.ca {
 
 ```
 pac-keeper [--data-dir DIR] [serve [--bind ADDR] [--auth] [--demo [--demo-reset-minutes N]]]
+pac-keeper --data-dir DIR serve --hosted --base-url URL [--quota-mb N]
+pac-keeper --data-dir DIR operator EMAIL [--name NAME]
+pac-keeper --data-dir DIR backup --to BACKUP_DIR
 pac-keeper user add NAME [--role treasurer|viewer] [--name "Display name"]
 pac-keeper user list
 pac-keeper user remove NAME

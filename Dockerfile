@@ -3,12 +3,15 @@
 #   docker build -t pac-keeper .
 #   docker run -p 8080:8080 -v pac-data:/data -e PAC_AUTH=1 pac-keeper    # a real PAC, with sign-in
 #   docker run -p 8080:8080 -e PAC_DEMO=1 pac-keeper                      # the public demo
+#   docker run -p 8080:8080 -v pac-hosted:/data -e PAC_HOSTED=1 \
+#     -e PAC_BASE_URL=https://app.packeeper.ca -e PAC_SMTP_URL=... -e PAC_MAIL_FROM=... pac-keeper   # many PACs
 
 FROM rust:1.95-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src src
 COPY migrations migrations
+COPY migrations_control migrations_control
 COPY templates templates
 COPY static static
 COPY typst typst

@@ -1,0 +1,17 @@
+{% extends "hosted/public.html" %}
+{% block title %}Request a PAC{% endblock %}
+{% block width %}medium{% endblock %}
+{% block content %}
+<h1>Request an account for another PAC</h1>
+<p class="sub">You become its first treasurer. We email you when it is approved.</p>
+{% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+<form method="post" action="/pacs/request">
+  <div class="field"><label for="pac_name">PAC name</label><input type="text" id="pac_name" name="pac_name" required></div>
+  <div class="fields">
+    <div class="field"><label for="school">School</label><input type="text" id="school" name="school" required></div>
+    <div class="field"><label for="district">School district</label><input type="text" id="district" name="district"></div>
+  </div>
+  <div class="field"><label for="message">Anything we should know? (optional)</label><textarea id="message" name="message"></textarea></div>
+  <button>Send the request</button> <a class="small" href="/pacs">Cancel</a>
+</form>
+{% endblock %}

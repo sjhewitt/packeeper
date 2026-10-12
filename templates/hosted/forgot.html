@@ -1,0 +1,11 @@
+{% extends "hosted/public.html" %}
+{% block title %}Forgot your password{% endblock %}
+{% block content %}
+<h1>Forgot your password?</h1>
+<p class="sub">Enter your email. We send you a link to set a new password.</p>
+<form method="post" action="/forgot">
+  <div class="field"><label for="email">Email</label><input type="text" id="email" name="email" autocomplete="email" autofocus required></div>
+  <button>Send the link</button>
+</form>
+<p class="small" style="margin-top: 18px;"><a href="/login">Back to sign in</a></p>
+{% endblock %}

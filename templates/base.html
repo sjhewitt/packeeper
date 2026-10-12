@@ -20,9 +20,9 @@
       <a href="/reports" {% if layout.nav == "reports" %}class="on"{% endif %}>Reports</a>
       <a href="/settings" {% if layout.nav == "settings" %}class="on"{% endif %}>Settings</a>
     </nav>
-    <div class="org" title="Change the name in Settings">{{ layout.pac_name }}</div>
+    <div class="org" title="Change the name in Settings">{{ layout.pac_name }}{% if layout.many_pacs() %} · <a href="/pacs">Switch PAC</a>{% endif %}</div>
     {% if let Some(name) = layout.user_name %}
-    <div class="user">{{ name }}<form method="post" action="/logout"><button>Sign out</button></form></div>
+    <div class="user">{% if layout.is_hosted() %}<a href="/account">{{ name }}</a>{% if layout.is_operator() %} · <a href="/operator">Operator</a>{% endif %}{% else %}{{ name }}{% endif %}<form method="post" action="/logout"><button>Sign out</button></form></div>
     {% endif %}
   </header>
   {% if let Some(minutes) = layout.demo %}

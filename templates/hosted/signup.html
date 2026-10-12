@@ -1,0 +1,25 @@
+{% extends "hosted/public.html" %}
+{% block title %}Request an account{% endblock %}
+{% block width %}medium{% endblock %}
+{% block content %}
+<h1>Request an account for your PAC</h1>
+<p class="sub">We review each request before the PAC opens, and email you when it is ready. You become the PAC's first treasurer, and you can invite the rest of the executive.</p>
+{% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+<form method="post" action="/signup">
+  <h3>The PAC</h3>
+  <div class="field"><label for="pac_name">PAC name</label><input type="text" id="pac_name" name="pac_name" value="{{ f.pac_name }}" placeholder="Maple Grove Elementary PAC" required></div>
+  <div class="fields">
+    <div class="field"><label for="school">School</label><input type="text" id="school" name="school" value="{{ f.school }}" required></div>
+    <div class="field"><label for="district">School district</label><input type="text" id="district" name="district" value="{{ f.district }}" placeholder="SD 39 Vancouver"></div>
+  </div>
+  <h3>You</h3>
+  <div class="field"><label for="name">Your name</label><input type="text" id="name" name="name" value="{{ f.name }}" autocomplete="name" required></div>
+  <div class="fields">
+    <div class="field"><label for="email">Email</label><input type="text" id="email" name="email" value="{{ f.email }}" autocomplete="email" required></div>
+    <div class="field"><label for="password">Password</label><input type="password" id="password" name="password" autocomplete="new-password" minlength="10" required><div class="hint">At least 10 characters.</div></div>
+  </div>
+  <div class="field"><label for="message">Anything we should know? (optional)</label><textarea id="message" name="message" placeholder="Your role on the PAC, or questions">{{ f.message }}</textarea></div>
+  <button>Send the request</button>
+</form>
+<p class="small" style="margin-top: 18px;">Already have an account? <a href="/login">Sign in</a></p>
+{% endblock %}

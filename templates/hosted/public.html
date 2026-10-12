@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PAC Keeper{% endblock %} · PAC Keeper</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="public">
+  <main class="public-main {% block width %}narrow{% endblock %}">
+    <a class="public-brand" href="/pacs"><img src="/static/logo.svg" alt="" width="40" height="40"><span>PAC Keeper</span></a>
+    <div class="panel">
+      {% block content %}{% endblock %}
+    </div>
+    <p class="small muted public-foot"><a href="https://packeeper.ca">packeeper.ca</a></p>
+  </main>
+</body>
+</html>

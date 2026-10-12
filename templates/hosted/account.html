@@ -1,0 +1,15 @@
+{% extends "hosted/public.html" %}
+{% block title %}Your account{% endblock %}
+{% block content %}
+<h1>Your account</h1>
+<p class="sub">{{ person.email }}</p>
+{% if let Some(m) = msg %}<div class="flash ok">{{ m }}</div>{% endif %}
+{% if let Some(e) = err %}<div class="flash err">{{ e }}</div>{% endif %}
+<form method="post" action="/account">
+  <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" value="{{ person.name }}" required></div>
+  <h3>Change your password</h3>
+  <div class="field"><label for="current_password">Current password</label><input type="password" id="current_password" name="current_password" autocomplete="current-password"></div>
+  <div class="field"><label for="new_password">New password</label><input type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="10"><div class="hint">Leave blank to keep your password.</div></div>
+  <button>Save</button> <a class="small" href="/pacs">Back to your PACs</a>
+</form>
+{% endblock %}

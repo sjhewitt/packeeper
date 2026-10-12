@@ -5,6 +5,7 @@ mod auth;
 mod budget;
 mod dashboard;
 mod events;
+mod hosted;
 mod import;
 mod reports;
 mod settings;
@@ -14,7 +15,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{DefaultBodyLimit, FromRef};
+use axum::extract::{DefaultBodyLimit, FromRef, FromRequestParts};
+use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use axum::middleware;
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -29,10 +31,13 @@ use crate::ledger::{self, Counts};
 use crate::models::User;
 use crate::reports::pdf::Renderer;
 
+/// What the whole server shares.
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: SqlitePool,
-    pub data_dir: PathBuf,
+    /// The one PAC of a single-PAC server. None on a hosted server.
+    pub single: Option<Single>,
+    /// The PACs of a hosted server. None on a single-PAC server.
+    pub hosted: Option<Arc<crate::hosted::Hosted>>,
     pub renderer: Arc<Renderer>,
     /// PDF rendering is CPU-heavy; this caps how many run at once.
     pub pdf_permits: Arc<tokio::sync::Semaphore>,
@@ -42,9 +47,61 @@ pub struct AppState {
     pub key: Key,
 }
 
+#[derive(Clone)]
+pub struct Single {
+    pub pool: SqlitePool,
+    pub data_dir: PathBuf,
+}
+
 impl FromRef<AppState> for Key {
     fn from_ref(state: &AppState) -> Key {
         state.key.clone()
+    }
+}
+
+/// What one request works with: the PAC's database and folder, and the shared
+/// services. The sign-in guard puts it on each request for a PAC page.
+#[derive(Clone)]
+pub struct Ctx {
+    pub pool: SqlitePool,
+    pub data_dir: PathBuf,
+    pub renderer: Arc<Renderer>,
+    pub pdf_permits: Arc<tokio::sync::Semaphore>,
+    /// Sign-in is on (always true on a hosted server).
+    pub auth: bool,
+    pub demo: Option<u32>,
+    pub hosted: Option<HostedCtx>,
+}
+
+/// On a hosted server: the PAC and the person of this request.
+#[derive(Clone)]
+pub struct HostedCtx {
+    pub hosted: Arc<crate::hosted::Hosted>,
+    pub pac: crate::hosted::Pac,
+    pub person: crate::hosted::Person,
+    pub pac_count: usize,
+}
+
+impl Ctx {
+    fn new(app: &AppState, pool: SqlitePool, data_dir: PathBuf, hosted: Option<HostedCtx>) -> Ctx {
+        Ctx {
+            pool,
+            data_dir,
+            renderer: app.renderer.clone(),
+            pdf_permits: app.pdf_permits.clone(),
+            auth: app.auth || hosted.is_some(),
+            demo: app.demo,
+            hosted,
+        }
+    }
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for Ctx {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Ctx, AppError> {
+        // A route without a PAC context is a guard bug; never fall back to another PAC.
+        parts.extensions.get::<Ctx>().cloned().ok_or(AppError::NotFound)
     }
 }
 
@@ -93,6 +150,22 @@ pub fn router(state: AppState) -> Router {
         .route("/rules/{id}/delete", post(accounts::delete_rule))
         .route("/login", get(auth::login_page).post(auth::login))
         .route("/logout", post(auth::logout))
+        // Hosted server only: sign-up, accounts, members, and the operator.
+        .route("/signup", get(hosted::signup_page).post(hosted::signup))
+        .route("/verify/resend", post(hosted::resend_verification))
+        .route("/verify/{token}", get(hosted::verify))
+        .route("/forgot", get(hosted::forgot_page).post(hosted::forgot))
+        .route("/reset/{token}", get(hosted::reset_page).post(hosted::reset))
+        .route("/invite/{token}", get(hosted::invite_page).post(hosted::accept_invite))
+        .route("/pacs", get(hosted::pacs_page))
+        .route("/pacs/request", get(hosted::request_page).post(hosted::request_pac))
+        .route("/pacs/{id}/open", post(hosted::open_pac))
+        .route("/account", get(hosted::account_page).post(hosted::update_account))
+        .route("/members", get(hosted::members_page).post(hosted::invite))
+        .route("/members/{person}/role", post(hosted::change_role))
+        .route("/members/{person}/remove", post(hosted::remove_member))
+        .route("/operator", get(hosted::operator_page))
+        .route("/operator/pacs/{id}/{action}", post(hosted::operator_action))
         .route("/static/app.css", get(|| async { static_file("text/css", include_str!("../../static/app.css")) }))
         .route(
             "/static/logo.svg",
@@ -134,6 +207,9 @@ pub struct Layout {
     pub flash_err: Option<String>,
     /// Minutes between resets when this is a public demo.
     pub demo: Option<u32>,
+    /// On a hosted server: how many PACs the person belongs to, and whether
+    /// they run the server.
+    pub hosted: Option<(usize, bool)>,
 }
 
 /// The product name and version, shown in the page footer.
@@ -154,8 +230,20 @@ impl Layout {
         APP_URL
     }
 
+    pub fn is_hosted(&self) -> bool {
+        self.hosted.is_some()
+    }
+
+    pub fn many_pacs(&self) -> bool {
+        self.hosted.is_some_and(|(n, _)| n > 1)
+    }
+
+    pub fn is_operator(&self) -> bool {
+        self.hosted.is_some_and(|(_, op)| op)
+    }
+
     pub async fn new(
-        state: &AppState,
+        state: &Ctx,
         user: &CurrentUser,
         nav: &'static str,
         title: impl Into<String>,
@@ -175,12 +263,13 @@ impl Layout {
             flash_ok: flash.msg.clone().filter(|s| !s.is_empty()),
             flash_err: flash.err.clone().filter(|s| !s.is_empty()),
             demo: state.demo,
+            hosted: state.hosted.as_ref().map(|h| (h.pac_count, h.person.is_operator)),
         })
     }
 }
 
 /// Refuses file uploads on a public demo: anyone could store anything there.
-pub fn no_uploads_in_demo(state: &AppState, back: &str) -> Option<Response> {
+pub fn no_uploads_in_demo(state: &Ctx, back: &str) -> Option<Response> {
     state.demo.map(|_| redirect_err(back, "File uploads are off in the public demo."))
 }
 
@@ -277,4 +366,4 @@ pub fn opt_id(s: &Option<String>) -> Option<i64> {
 
 pub type UserExt = Extension<CurrentUser>;
 
-pub use auth::add_user;
+pub use auth::{add_user, hash_password, verify_password};

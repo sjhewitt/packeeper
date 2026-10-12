@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/settings">Settings</a> ›</p>
+    <h1>Members</h1>
+    <p class="sub">The people who can open these books. Treasurers can change the records and manage members. Viewers can see the books and reports.</p>
+  </div>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Since</th><th></th></tr></thead>
+    <tbody>
+    {% for m in members %}
+      <tr>
+        <td>{% if m.name.is_empty() %}<span class="muted">—</span>{% else %}{{ m.name }}{% endif %}{% if m.person_id == me %} <span class="tag muted">you</span>{% endif %}{% if !m.has_password %} <span class="tag warn">invited</span>{% endif %}</td>
+        <td>{{ m.email }}</td>
+        <td>
+          {% if layout.can_edit %}
+          <form method="post" action="/members/{{ m.person_id }}/role" class="inline">
+            <select name="role" class="compact" onchange="this.form.submit()" aria-label="Role">
+              <option value="treasurer" {% if m.role == "treasurer" %}selected{% endif %}>Treasurer</option>
+              <option value="viewer" {% if m.role == "viewer" %}selected{% endif %}>Viewer</option>
+            </select>
+          </form>
+          {% else %}{% if m.role == "treasurer" %}Treasurer{% else %}Viewer{% endif %}{% endif %}
+        </td>
+        <td class="nowrap">{{ m.joined }}</td>
+        <td>{% if layout.can_edit %}<form method="post" action="/members/{{ m.person_id }}/remove" class="inline" onsubmit="return confirm('{% if m.person_id == me %}Leave this PAC?{% else %}Remove this member?{% endif %}')"><button class="danger small">{% if m.person_id == me %}Leave{% else %}Remove{% endif %}</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if layout.can_edit %}
+<form class="panel" method="post" action="/members" style="max-width: 640px;">
+  <h2>Invite someone</h2>
+  <p class="small muted">They get an email with a link that works for 7 days. To hand over to a new treasurer, invite them as a treasurer, then leave the PAC.</p>
+  <div class="fields">
+    <div class="field"><label for="email">Email</label><input type="text" id="email" name="email" required></div>
+    <div class="field"><label for="role">Role</label>
+      <select id="role" name="role"><option value="viewer">Viewer</option><option value="treasurer">Treasurer</option></select>
+    </div>
+  </div>
+  <button>Send the invitation</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -2,13 +2,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use askama::Template;
-use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::{Form, Query};
 use serde::Deserialize;
 
-use super::{AppResult, AppState, Flash, Layout, UserExt, redirect_err, redirect_ok, render, require_edit};
+use super::{AppResult, Ctx, Flash, Layout, UserExt, redirect_err, redirect_ok, render, require_edit};
 use crate::db::Settings;
 use crate::money::{self, Money};
 
@@ -19,6 +18,7 @@ struct SettingsPage {
     s: Settings,
     data_dir: String,
     auth: bool,
+    hosted: bool,
     months: Vec<(u32, &'static str)>,
 }
 
@@ -37,12 +37,13 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-pub async fn page(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     render(SettingsPage {
         layout: Layout::new(&state, &user, "settings", "Settings", &flash).await?,
         s: Settings::load(&state.pool).await?,
         data_dir: state.data_dir.canonicalize().unwrap_or(state.data_dir.clone()).display().to_string(),
         auth: state.auth,
+        hosted: state.hosted.is_some(),
         months: MONTHS.iter().enumerate().map(|(i, m)| (i as u32 + 1, *m)).collect(),
     })
 }
@@ -59,7 +60,7 @@ pub struct SettingsForm {
     gaming_org_number: String,
 }
 
-pub async fn save(State(state): State<AppState>, user: UserExt, Form(f): Form<SettingsForm>) -> AppResult<Response> {
+pub async fn save(state: Ctx, user: UserExt, Form(f): Form<SettingsForm>) -> AppResult<Response> {
     require_edit(&user)?;
     let enrolment = if f.enrolment.trim().is_empty() {
         0
@@ -83,6 +84,9 @@ pub async fn save(State(state): State<AppState>, user: UserExt, Form(f): Form<Se
         gaming_org_number: f.gaming_org_number.trim().into(),
     };
     s.save(&state.pool).await?;
+    if let Some(h) = &state.hosted {
+        h.hosted.rename(h.pac.id, &s.pac_name, &s.school_name).await?;
+    }
     Ok(redirect_ok("/settings", "Settings saved."))
 }
 
@@ -93,7 +97,7 @@ impl SettingsPage {
 }
 
 /// A zip of the database, receipts, and imported bank files.
-pub async fn backup(State(state): State<AppState>, user: UserExt) -> AppResult<Response> {
+pub async fn backup(state: Ctx, user: UserExt) -> AppResult<Response> {
     // The backup holds everything, including password hashes.
     require_edit(&user)?;
     let dir = state.data_dir.join("backups");

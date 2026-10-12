@@ -1,12 +1,11 @@
 use askama::Template;
-use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::Query;
 use chrono::NaiveDate;
 use serde::Deserialize;
 
-use super::{AppError, AppResult, AppState, Flash, Layout, UserExt, opt_id, render};
+use super::{AppError, AppResult, Ctx, Flash, Layout, UserExt, opt_id, render};
 use crate::fiscal;
 use crate::models::FiscalYear;
 use crate::reports::gaming::{self, GamingReport};
@@ -24,7 +23,7 @@ struct ReportsPage {
     next_id: i64,
 }
 
-pub async fn page(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let pool = &state.pool;
     let current = fiscal::current(pool).await?;
     let mut years = fiscal::list(pool).await?;
@@ -67,7 +66,7 @@ fn pdf_response(bytes: Vec<u8>, filename: &str) -> Response {
         .into_response()
 }
 
-async fn render_pdf(state: &AppState, template: &'static str, data: serde_json::Value) -> AppResult<Vec<u8>> {
+async fn render_pdf(state: &Ctx, template: &'static str, data: serde_json::Value) -> AppResult<Vec<u8>> {
     // Wait for a free slot, so a burst of requests cannot use every CPU.
     let _permit = state.pdf_permits.clone().acquire_owned().await.map_err(anyhow::Error::from)?;
     let renderer = state.renderer.clone();
@@ -80,7 +79,7 @@ pub struct MonthQuery {
     month: Option<String>,
 }
 
-pub async fn monthly_pdf(State(state): State<AppState>, Query(q): Query<MonthQuery>) -> AppResult<Response> {
+pub async fn monthly_pdf(state: Ctx, Query(q): Query<MonthQuery>) -> AppResult<Response> {
     let month = q
         .month
         .as_deref()
@@ -96,7 +95,7 @@ pub struct FyQuery {
     fy: Option<String>,
 }
 
-async fn year(state: &AppState, q: &FyQuery) -> AppResult<FiscalYear> {
+async fn year(state: &Ctx, q: &FyQuery) -> AppResult<FiscalYear> {
     match opt_id(&q.fy) {
         Some(id) => fiscal::get(&state.pool, id).await?.ok_or(AppError::NotFound),
         None => Ok(fiscal::current(&state.pool).await?),
@@ -107,7 +106,7 @@ fn file_label(fy: &FiscalYear) -> String {
     fy.label.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }
 
-pub async fn annual_pdf(State(state): State<AppState>, Query(q): Query<FyQuery>) -> AppResult<Response> {
+pub async fn annual_pdf(state: Ctx, Query(q): Query<FyQuery>) -> AppResult<Response> {
     let fy = year(&state, &q).await?;
     let data = pdf::annual(&state.pool, &fy).await?;
     let bytes = render_pdf(&state, "annual.typ", data).await?;
@@ -115,7 +114,7 @@ pub async fn annual_pdf(State(state): State<AppState>, Query(q): Query<FyQuery>)
 }
 
 /// `fy` is the year the budget is for; it is based on the year before.
-pub async fn budget_pdf(State(state): State<AppState>, Query(q): Query<FyQuery>) -> AppResult<Response> {
+pub async fn budget_pdf(state: Ctx, Query(q): Query<FyQuery>) -> AppResult<Response> {
     let target = year(&state, &q).await?;
     let base = fiscal::previous(&state.pool, &target).await?.ok_or_else(|| {
         AppError::BadRequest(format!("There is no fiscal year before {} to base the budget on.", target.label))
@@ -126,7 +125,7 @@ pub async fn budget_pdf(State(state): State<AppState>, Query(q): Query<FyQuery>)
     Ok(pdf_response(bytes, &format!("budget-proposal-{}.pdf", file_label(&target))))
 }
 
-pub async fn gaming_pdf(State(state): State<AppState>, Query(q): Query<FyQuery>) -> AppResult<Response> {
+pub async fn gaming_pdf(state: Ctx, Query(q): Query<FyQuery>) -> AppResult<Response> {
     let fy = year(&state, &q).await?;
     let report = gaming::build(&state.pool, &fy).await?;
     let data = pdf::gasr(&state.pool, &report).await?;
@@ -150,11 +149,7 @@ pub struct GamingQuery {
     flash: Flash,
 }
 
-pub async fn gaming_page(
-    State(state): State<AppState>,
-    user: UserExt,
-    Query(q): Query<GamingQuery>,
-) -> AppResult<Response> {
+pub async fn gaming_page(state: Ctx, user: UserExt, Query(q): Query<GamingQuery>) -> AppResult<Response> {
     let pool = &state.pool;
     let fy = match opt_id(&q.fy) {
         Some(id) => fiscal::get(pool, id).await?.ok_or(AppError::NotFound)?,

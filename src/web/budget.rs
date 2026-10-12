@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use askama::Template;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::Path as UrlPath;
 use axum::response::Response;
 use axum_extra::extract::{Form, Query};
 use chrono::NaiveDate;
 use serde::Deserialize;
 
 use super::{
-    AppError, AppResult, AppState, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
+    AppError, AppResult, Ctx, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
 };
 use crate::db::Settings;
 use crate::fiscal;
@@ -41,14 +41,14 @@ impl BudgetPage {
     }
 }
 
-async fn pick_year(state: &AppState, id: Option<i64>) -> AppResult<FiscalYear> {
+async fn pick_year(state: &Ctx, id: Option<i64>) -> AppResult<FiscalYear> {
     match id {
         Some(id) => fiscal::get(&state.pool, id).await?.ok_or(AppError::NotFound),
         None => Ok(fiscal::current(&state.pool).await?),
     }
 }
 
-pub async fn page(State(state): State<AppState>, user: UserExt, Query(q): Query<YearQuery>) -> AppResult<Response> {
+pub async fn page(state: Ctx, user: UserExt, Query(q): Query<YearQuery>) -> AppResult<Response> {
     let pool = &state.pool;
     let fy = pick_year(&state, opt_id(&q.fy)).await?;
     let funds = reports::fund_summaries(pool, &fy, fy.start_date, fy.end_date).await?;
@@ -75,7 +75,7 @@ pub struct AmountsForm {
 
 /// Saves every budget amount on the page at once.
 pub async fn set_amounts(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(fy_id): UrlPath<i64>,
     Form(f): Form<AmountsForm>,
@@ -126,7 +126,7 @@ pub struct YearForm {
 }
 
 pub async fn update_year(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(fy_id): UrlPath<i64>,
     Form(f): Form<YearForm>,
@@ -174,11 +174,7 @@ pub async fn update_year(
     }
 }
 
-pub async fn create_next_year(
-    State(state): State<AppState>,
-    user: UserExt,
-    Form(q): Form<YearQuery>,
-) -> AppResult<Response> {
+pub async fn create_next_year(state: Ctx, user: UserExt, Form(q): Form<YearQuery>) -> AppResult<Response> {
     require_edit(&user)?;
     let base = pick_year(&state, opt_id(&q.fy)).await?;
     let next = fiscal::next(&state.pool, &base).await?;
@@ -197,7 +193,7 @@ struct ProposalPage {
     settings: Settings,
 }
 
-pub async fn proposal(State(state): State<AppState>, user: UserExt, Query(q): Query<YearQuery>) -> AppResult<Response> {
+pub async fn proposal(state: Ctx, user: UserExt, Query(q): Query<YearQuery>) -> AppResult<Response> {
     let pool = &state.pool;
     let base = pick_year(&state, opt_id(&q.base)).await?;
     let target = fiscal::next(pool, &base).await?;
@@ -216,7 +212,7 @@ pub struct FillForm {
     how: String,
 }
 
-pub async fn fill(State(state): State<AppState>, user: UserExt, Form(f): Form<FillForm>) -> AppResult<Response> {
+pub async fn fill(state: Ctx, user: UserExt, Form(f): Form<FillForm>) -> AppResult<Response> {
     require_edit(&user)?;
     let pool = &state.pool;
     let base = fiscal::get(pool, f.base).await?.ok_or(AppError::NotFound)?;

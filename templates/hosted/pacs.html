@@ -1,0 +1,38 @@
+{% extends "hosted/public.html" %}
+{% block title %}Your PACs{% endblock %}
+{% block width %}medium{% endblock %}
+{% block content %}
+<div class="page-head" style="margin-bottom: 8px;">
+  <div>
+    <h1>Your PACs</h1>
+    <p class="sub">Signed in as {{ person.name }} ({{ person.email }})</p>
+  </div>
+  <div class="actions">
+    <a class="small" href="/account">Account</a>
+    {% if person.is_operator %}<a class="small" href="/operator">Operator</a>{% endif %}
+    <form method="post" action="/logout" class="inline"><button class="secondary small">Sign out</button></form>
+  </div>
+</div>
+{% if memberships.is_empty() %}
+<p>You do not belong to a PAC yet. Ask a treasurer to invite you, or request an account for your PAC.</p>
+{% else %}
+<table>
+  <tbody>
+  {% for m in memberships %}
+    <tr>
+      <td><strong>{{ m.pac.name }}</strong><br><span class="small muted">{{ m.pac.school }}</span></td>
+      <td>{% if m.role == "treasurer" %}Treasurer{% else %}Viewer{% endif %}</td>
+      <td class="num">
+        {% if m.pac.is_active() %}
+          <form method="post" action="/pacs/{{ m.pac.id }}/open" class="inline"><button class="small">Open</button></form>
+        {% else if m.pac.status == "requested" %}<span class="tag warn">waiting for approval</span>
+        {% else if m.pac.status == "suspended" %}<span class="tag bad">suspended</span>
+        {% else %}<span class="tag muted">not approved</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<p class="small" style="margin-top: 18px;"><a href="/pacs/request">Request an account for another PAC</a></p>
+{% endblock %}

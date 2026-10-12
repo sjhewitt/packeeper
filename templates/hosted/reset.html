@@ -1,0 +1,10 @@
+{% extends "hosted/public.html" %}
+{% block title %}Set a new password{% endblock %}
+{% block content %}
+<h1>Set a new password</h1>
+{% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+<form method="post" action="/reset/{{ token }}">
+  <div class="field"><label for="password">New password</label><input type="password" id="password" name="password" autocomplete="new-password" minlength="10" autofocus required><div class="hint">At least 10 characters. Other devices are signed out.</div></div>
+  <button>Save the password</button>
+</form>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "hosted/public.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<h1>Sign in</h1>
+<p class="sub">Open your PAC's books.</p>
+{% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+<form method="post" action="/login">
+  <div class="field"><label for="email">Email</label><input type="text" id="email" name="email" value="{{ email }}" autocomplete="email" autofocus required></div>
+  <div class="field"><label for="password">Password</label><input type="password" id="password" name="password" autocomplete="current-password" required></div>
+  <button>Sign in</button>
+</form>
+{% if unverified %}
+<form method="post" action="/verify/resend" style="margin-top: 14px;">
+  <input type="hidden" name="email" value="{{ email }}">
+  <button class="secondary small">Send the confirmation link again</button>
+</form>
+{% endif %}
+<p class="small" style="margin-top: 18px;"><a href="/forgot">Forgot your password?</a> · New PAC? <a href="/signup">Request an account</a></p>
+{% endblock %}

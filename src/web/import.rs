@@ -1,11 +1,11 @@
 use askama::Template;
-use axum::extract::{Multipart, Path as UrlPath, State};
+use axum::extract::{Multipart, Path as UrlPath};
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::{Form, Query};
 use serde::Deserialize;
 
 use super::{
-    AppError, AppResult, AppState, Flash, Layout, UserExt, no_uploads_in_demo, redirect_err, redirect_ok, render,
+    AppError, AppResult, Ctx, Flash, Layout, UserExt, no_uploads_in_demo, redirect_err, redirect_ok, render,
     require_edit,
 };
 use crate::db;
@@ -22,7 +22,7 @@ struct ImportPage {
     batches: Vec<(ImportBatch, String)>,
 }
 
-pub async fn page(State(state): State<AppState>, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
+pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     require_edit(&user)?;
     let pool = &state.pool;
     let batches: Vec<ImportBatch> =
@@ -44,7 +44,7 @@ pub async fn page(State(state): State<AppState>, user: UserExt, Query(flash): Qu
     })
 }
 
-pub async fn upload(State(state): State<AppState>, user: UserExt, mut multipart: Multipart) -> AppResult<Response> {
+pub async fn upload(state: Ctx, user: UserExt, mut multipart: Multipart) -> AppResult<Response> {
     require_edit(&user)?;
     if let Some(refused) = no_uploads_in_demo(&state, "/import") {
         return Ok(refused);
@@ -74,7 +74,7 @@ pub async fn upload(State(state): State<AppState>, user: UserExt, mut multipart:
 }
 
 /// On a public demo: import a small built-in statement into the general account.
-pub async fn sample(State(state): State<AppState>, user: UserExt) -> AppResult<Response> {
+pub async fn sample(state: Ctx, user: UserExt) -> AppResult<Response> {
     require_edit(&user)?;
     if state.demo.is_none() {
         return Err(AppError::NotFound);
@@ -91,7 +91,7 @@ pub async fn sample(State(state): State<AppState>, user: UserExt) -> AppResult<R
 }
 
 /// Saves an uploaded bank file and opens its preview.
-async fn start_batch(state: &AppState, account_id: i64, filename: &str, bytes: &[u8]) -> AppResult<Response> {
+async fn start_batch(state: &Ctx, account_id: i64, filename: &str, bytes: &[u8]) -> AppResult<Response> {
     let format = if ofx::looks_like_ofx(bytes) { "ofx" } else { "csv" };
     let check = if format == "ofx" { ofx::parse(bytes).map(|_| ()) } else { csvimp::read(bytes).map(|_| ()) };
     if let Err(e) = check {
@@ -170,7 +170,7 @@ struct Parsed {
 }
 
 async fn parse_batch(
-    state: &AppState,
+    state: &Ctx,
     batch: &ImportBatch,
     account: &Account,
     form: Option<&MappingForm>,
@@ -293,7 +293,7 @@ fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-async fn build_table(state: &AppState, account: &Account, p: &Parsed) -> AppResult<PreviewTable> {
+async fn build_table(state: &Ctx, account: &Account, p: &Parsed) -> AppResult<PreviewTable> {
     let statuses = import::classify(&state.pool, account, &p.rows).await?;
     let count = |s: fn(&RowStatus) -> bool| statuses.iter().filter(|x| s(x)).count();
     let mut hints = Vec::new();
@@ -338,7 +338,7 @@ async fn build_table(state: &AppState, account: &Account, p: &Parsed) -> AppResu
     })
 }
 
-async fn load(state: &AppState, id: i64) -> AppResult<ImportBatch> {
+async fn load(state: &Ctx, id: i64) -> AppResult<ImportBatch> {
     sqlx::query_as("SELECT * FROM import_batches WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.pool)
@@ -355,7 +355,7 @@ struct DonePage {
 }
 
 pub async fn preview(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Query(flash): Query<Flash>,
@@ -383,7 +383,7 @@ pub async fn preview(
 
 /// htmx: re-parse with the changed mapping and return the preview table.
 pub async fn preview_table(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(form): Form<MappingForm>,
@@ -397,7 +397,7 @@ pub async fn preview_table(
 }
 
 pub async fn commit(
-    State(state): State<AppState>,
+    state: Ctx,
     user: UserExt,
     UrlPath(id): UrlPath<i64>,
     Form(form): Form<MappingForm>,
@@ -445,7 +445,7 @@ pub async fn commit(
 
 /// Removes the transactions a batch created. Entries made by hand that the
 /// batch matched go back to "not cleared".
-pub async fn undo(State(state): State<AppState>, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
+pub async fn undo(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     require_edit(&user)?;
     let pool = &state.pool;
     let files: Vec<String> = sqlx::query_scalar(

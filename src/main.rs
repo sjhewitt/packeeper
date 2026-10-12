@@ -4,6 +4,7 @@
 mod db;
 mod demo;
 mod fiscal;
+mod hosted;
 mod import;
 mod ledger;
 mod models;
@@ -52,6 +53,29 @@ enum Command {
         /// Minutes between demo resets.
         #[arg(long, env = "PAC_DEMO_RESET_MINUTES", default_value_t = 60, value_parser = clap::value_parser!(u32).range(5..))]
         demo_reset_minutes: u32,
+        /// Host many PACs: people sign up, sign in by email, and an operator
+        /// approves each PAC. The data folder holds a folder for each PAC.
+        #[arg(long, env = "PAC_HOSTED", action = clap::ArgAction::SetTrue, value_parser = clap::builder::BoolishValueParser::new())]
+        hosted: bool,
+        /// The public address of a hosted server, for links in emails.
+        #[arg(long, env = "PAC_BASE_URL", default_value = "http://127.0.0.1:8080")]
+        base_url: String,
+        /// Receipt storage for each PAC on a hosted server, in megabytes.
+        #[arg(long, env = "PAC_QUOTA_MB", default_value_t = 1024)]
+        quota_mb: i64,
+    },
+    /// Make someone an operator of a hosted server: they approve new PACs.
+    Operator {
+        email: String,
+        #[arg(long, default_value = "Operator")]
+        name: String,
+    },
+    /// Copy every database, receipt, and bank file into a dated folder.
+    /// Safe while the server runs. Works on a hosted or a single-PAC folder.
+    Backup {
+        /// The folder that receives the dated copy.
+        #[arg(long)]
+        to: PathBuf,
     },
     /// Manage sign-in users (for --auth).
     User {
@@ -106,25 +130,121 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
     let cli = Cli::parse();
-    std::fs::create_dir_all(&cli.data_dir).with_context(|| format!("create {}", cli.data_dir.display()))?;
-    let pool = db::open(&cli.data_dir).await?;
-    db::seed(&pool).await?;
-    fiscal::current(&pool).await?;
+    let dir = cli.data_dir.clone();
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
 
-    let default = Command::Serve { bind: "127.0.0.1:8080".parse()?, auth: false, demo: false, demo_reset_minutes: 60 };
+    let default = Command::Serve {
+        bind: "127.0.0.1:8080".parse()?,
+        auth: false,
+        demo: false,
+        demo_reset_minutes: 60,
+        hosted: false,
+        base_url: "http://127.0.0.1:8080".into(),
+        quota_mb: 1024,
+    };
     match cli.command.unwrap_or(default) {
-        Command::Serve { bind, auth, demo, demo_reset_minutes } => {
-            let demo = demo.then_some(demo_reset_minutes);
-            serve(pool, &cli.data_dir, bind, auth, demo).await
+        Command::Serve { bind, hosted: true, demo, base_url, quota_mb, .. } => {
+            if demo {
+                anyhow::bail!("--demo runs on a single-PAC folder, not with --hosted");
+            }
+            serve_hosted(&dir, bind, base_url, quota_mb).await
         }
-        Command::User { command } => users(&pool, command).await,
-        Command::Pdf { report, output } => pdf(&pool, report, output).await,
+        Command::Serve { bind, auth, demo, demo_reset_minutes, .. } => {
+            let pool = open_single(&dir).await?;
+            serve(pool, &dir, bind, auth, demo.then_some(demo_reset_minutes)).await
+        }
+        Command::User { command } => users(&open_single(&dir).await?, command).await,
+        Command::Pdf { report, output } => pdf(&open_single(&dir).await?, report, output).await,
         Command::Demo => {
-            demo::load(&pool, &cli.data_dir).await?;
+            demo::load(&open_single(&dir).await?, &dir).await?;
             println!("Loaded the example PAC. Start PAC Keeper with the same --data-dir and open it in a browser.");
             Ok(())
         }
+        Command::Operator { email, name } => operator(&dir, &email, &name).await,
+        Command::Backup { to } => {
+            let dest = hosted::backup(&dir, &to).await?;
+            println!("Copied every database, receipt, and bank file to {}", dest.display());
+            Ok(())
+        }
     }
+}
+
+/// The database of a single-PAC folder. Refuses a hosted server's folder.
+async fn open_single(dir: &Path) -> anyhow::Result<sqlx::SqlitePool> {
+    if dir.join("control.db").exists() {
+        anyhow::bail!("{} is a hosted server's folder; run it with serve --hosted", dir.display());
+    }
+    let pool = db::open(dir).await?;
+    db::seed(&pool).await?;
+    fiscal::current(&pool).await?;
+    Ok(pool)
+}
+
+async fn open_hosted(dir: &Path, base_url: String, quota_mb: i64) -> anyhow::Result<hosted::Hosted> {
+    if dir.join("pac.db").exists() {
+        anyhow::bail!("{} holds one PAC's records. A hosted server needs its own, separate folder.", dir.display());
+    }
+    let mailer = hosted::mail::Mailer::from_env(dir.join("outbox"))?;
+    hosted::Hosted::open(dir, base_url, mailer, quota_mb * 1024 * 1024).await
+}
+
+async fn serve_hosted(dir: &Path, bind: SocketAddr, base_url: String, quota_mb: i64) -> anyhow::Result<()> {
+    let hosted = open_hosted(dir, base_url, quota_mb).await?;
+    let operators: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM people WHERE is_operator = 1").fetch_one(&hosted.control).await?;
+    println!("PAC Keeper (hosted) is running at http://{bind}");
+    println!("Public address: {}", hosted.base_url);
+    println!("Data folder: {}", dir.canonicalize().unwrap_or(dir.to_path_buf()).display());
+    println!("Email: {}", hosted.mailer.describe());
+    if operators == 0 {
+        println!("No operator yet. Add one with: pac-keeper --data-dir {} operator you@example.org", dir.display());
+    }
+    let state = web::AppState {
+        single: None,
+        hosted: Some(Arc::new(hosted)),
+        renderer: Arc::new(reports::pdf::Renderer::new()),
+        pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
+        auth: true,
+        demo: None,
+        key: load_key(dir)?,
+    };
+    let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
+    axum::serve(listener, web::router(state)).with_graceful_shutdown(shutdown_signal()).await?;
+    Ok(())
+}
+
+async fn operator(dir: &Path, email: &str, name: &str) -> anyhow::Result<()> {
+    if !hosted::looks_like_email(email) {
+        anyhow::bail!("{email} is not an email address");
+    }
+    let hosted = open_hosted(dir, String::new(), 1024).await?;
+    let person = hosted.ensure_person(&email.to_lowercase(), name).await?;
+    if person.password_hash.is_none() {
+        let password = read_password(email)?;
+        hosted.set_password(person.id, &password).await?;
+    }
+    hosted.mark_verified(person.id).await?;
+    sqlx::query("UPDATE people SET is_operator = 1 WHERE id = ?").bind(person.id).execute(&hosted.control).await?;
+    println!("{email} is an operator. Sign in, then open /operator to approve PACs.");
+    Ok(())
+}
+
+/// A new password, from PAC_PASSWORD or typed twice.
+fn read_password(who: &str) -> anyhow::Result<String> {
+    let password = match std::env::var("PAC_PASSWORD") {
+        Ok(p) => p,
+        Err(_) => {
+            let p = rpassword::prompt_password(format!("Password for {who}: "))?;
+            if p != rpassword::prompt_password("Again: ")? {
+                anyhow::bail!("the passwords do not match");
+            }
+            p
+        }
+    };
+    if password.chars().count() < 10 {
+        anyhow::bail!("use a password of at least 10 characters");
+    }
+    Ok(password)
 }
 
 /// `demo` is the number of minutes between demo resets, when this is a public demo.
@@ -151,8 +271,8 @@ async fn serve(
         });
     }
     let state = web::AppState {
-        pool,
-        data_dir: data_dir.to_path_buf(),
+        single: Some(web::Single { pool, data_dir: data_dir.to_path_buf() }),
+        hosted: None,
         renderer: Arc::new(reports::pdf::Renderer::new()),
         pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
         auth: auth || demo.is_some(),
@@ -217,19 +337,7 @@ async fn users(pool: &sqlx::SqlitePool, command: UserCommand) -> anyhow::Result<
     match command {
         UserCommand::Add { username, role, name } => {
             // PAC_PASSWORD allows scripted set-up on a server with no terminal.
-            let password = match std::env::var("PAC_PASSWORD") {
-                Ok(p) => p,
-                Err(_) => {
-                    let p = rpassword::prompt_password(format!("Password for {username}: "))?;
-                    if p != rpassword::prompt_password("Again: ")? {
-                        anyhow::bail!("the passwords do not match");
-                    }
-                    p
-                }
-            };
-            if password.len() < 8 {
-                anyhow::bail!("use a password of at least 8 characters");
-            }
+            let password = read_password(&username)?;
             web::add_user(pool, &username, &name, &password, &role).await?;
             println!("Saved user {username} ({role}).");
         }
