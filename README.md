@@ -188,7 +188,6 @@ With Docker: `docker run -d -p 127.0.0.1:8080:8080 -v pac-hosted:/data -e PAC_HO
 
 **Backups are your job as the operator.** `pac-keeper --data-dir DIR backup --to BACKUP_DIR` copies every database, receipt, and bank file into a dated folder. It is safe while the server runs. Run it every night (from cron or a systemd timer), copy the result off the server (for example with `rclone` to encrypted storage), and test a restore. Before you take real PAC data, also:
 
-- host the server in Canada if you promise Canadian data residency
 - publish a privacy policy and terms of service
 - get advice on your obligations under BC's privacy law (PIPA)
 
@@ -218,11 +217,76 @@ demo.packeeper.ca {
 
 ## The website
 
-`site/` is the static website for packeeper.ca: one HTML page and its images, with no build step. Upload the folder to any static host, such as Cloudflare Pages, Netlify, or GitHub Pages.
+`site/` is the static website for packeeper.ca: one HTML page and its images, with no build step. Upload the folder to any static host, such as Opalstack (see below), Cloudflare Pages, Netlify, or GitHub Pages.
 
 - It links to the demo at `https://demo.packeeper.ca` and shows the demo login.
 - It names `hello@packeeper.ca` as the contact address.
 - The screenshots in `site/img/` come from the demo data. To refresh them, run the demo and capture the pages again.
+
+## Hosting on Opalstack
+
+[Opalstack](https://www.opalstack.com) can run the website, the demo, and the hosted server on one account, without Docker. The website is a static app. The demo and the hosted server are each a "Proxied Port" app: the Linux program listens on `127.0.0.1` at the app's port, and Opalstack's web server passes it the requests over HTTPS.
+
+1. **The program.** Each release has `pac-keeper-linux-x86_64.tar.gz`: one static program that runs on any 64-bit Linux, and the scripts in `deploy/opalstack/`. Before the first release, download the `pac-keeper-linux-x86_64` artifact from a run of the "Release builds" workflow. On the server, signed in with SSH as the apps' user:
+
+   ```sh
+   mkdir -p ~/bin ~/downloads && cd ~/downloads
+   curl -LO https://github.com/sjhewitt/packeeper/releases/latest/download/pac-keeper-linux-x86_64.tar.gz
+   tar -xzf pac-keeper-linux-x86_64.tar.gz
+   cp pac-keeper/pac-keeper ~/bin/ && ~/bin/pac-keeper --version
+   ```
+
+2. **Domains.** In the dashboard, add `packeeper.ca` and `packeeper.com`, with the subdomains `www`, `demo`, and `app`. Point their DNS at your Opalstack server.
+
+3. **Apps.** Create three apps. Write down the port of each Proxied Port app.
+   - `pk_site`, type **Static only**, for the website
+   - `pk_demo`, type **Proxied port**, for the demo
+   - `pk_app`, type **Proxied port**, for the hosted server
+
+4. **The website.** From this repository, copy `site/` into the static app. Use the server name from the dashboard:
+
+   ```sh
+   rsync -av --delete site/ USER@SERVER.opalstack.com:apps/pk_site/
+   ```
+
+5. **The scripts and settings.** For each Proxied Port app, copy the scripts into its folder. They replace any `start` and `stop` that Opalstack made:
+
+   ```sh
+   for app in pk_demo pk_app; do
+     cp ~/downloads/pac-keeper/start ~/downloads/pac-keeper/stop ~/apps/$app/
+     cp ~/downloads/pac-keeper/env.example ~/apps/$app/env
+   done
+   ```
+
+   Then edit each `env` file:
+   - `~/apps/pk_demo/env`: the app's port, `PAC_DATA_DIR="$HOME/pac-keeper-data/demo"`, and `PAC_DEMO=1`.
+   - `~/apps/pk_app/env`: the app's port, `PAC_DATA_DIR="$HOME/pac-keeper-data/hosted"`, `PAC_HOSTED=1`, `PAC_BASE_URL`, and the email settings. First make a mailbox for `hello@packeeper.ca` in the dashboard. The SMTP user is the mailbox name, not the email address.
+
+6. **The operator.** Make yourself the hosted server's operator:
+
+   ```sh
+   ~/bin/pac-keeper --data-dir ~/pac-keeper-data/hosted operator you@example.org --name "Your Name"
+   ```
+
+7. **Start, and keep running.** Run `~/apps/pk_demo/start` and `~/apps/pk_app/start`. Each prints its log file if the server stops at start. Then add these lines with `crontab -e`. Every 10 minutes, cron starts a server that is not running, for example after a server restart:
+
+   ```
+   */10 * * * * $HOME/apps/pk_demo/start > /dev/null 2>&1
+   */10 * * * * $HOME/apps/pk_app/start > /dev/null 2>&1
+   0 3 * * * $HOME/bin/pac-keeper --data-dir $HOME/pac-keeper-data/hosted backup --to $HOME/pac-keeper-backups > /dev/null 2>&1
+   ```
+
+   The last line makes a backup every night. Copy the backups off the server too, and delete old ones.
+
+8. **Sites.** In the dashboard, create one site for each address. Turn on the Let's Encrypt certificate and the redirect to HTTPS for each.
+   - `packeeper.ca` and `www.packeeper.ca`: app `pk_site` at `/`
+   - `demo.packeeper.ca`: app `pk_demo` at `/`
+   - `app.packeeper.ca`: app `pk_app` at `/`
+   - `packeeper.com`: a redirect to `https://packeeper.ca`. Use the domain registrar's forwarding, or follow Opalstack's guide to URL redirects.
+
+9. **Check.** On the demo, sign in and change a line item. This checks that form posts pass through the proxy. On the hosted server, sign up with a second email address, check that the email arrives, and approve the PAC on `/operator`.
+
+**Upgrades.** Download the new release as in step 1. Then run `~/apps/pk_demo/stop`, `~/apps/pk_app/stop`, copy the new program to `~/bin`, and start both again. Each server updates its databases when it starts. Make a backup first.
 
 ## Command reference
 
@@ -293,7 +357,7 @@ npm run tauri build -- --bundles nsis              # Windows: the installer
 
 `PAC_DATA_DIR` makes the app use another folder, for example a copy of the example data.
 
-`.github/workflows/desktop.yml` builds both apps on GitHub Actions. Run it from the Actions tab to get the files as build artifacts. Push a tag such as `v0.2.0` to also make a draft release with the files attached. Check the draft, then publish it.
+`.github/workflows/release.yml` ("Release builds") builds both apps, and the Linux server program, on GitHub Actions. Run it from the Actions tab to get the files as build artifacts. Push a tag such as `v0.2.0` to also make a draft release with the files attached. Check the draft, then publish it.
 
 To sign the apps later, add an Apple Developer ID certificate and notarization secrets for macOS, and a code-signing certificate for Windows. See the Tauri guides on [macOS signing](https://tauri.app/distribute/sign/macos/) and [Windows signing](https://tauri.app/distribute/sign/windows/).
 

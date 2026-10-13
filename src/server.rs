@@ -43,7 +43,11 @@ fn single_state(
         pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
         auth,
         demo: None,
-        loopback_only: bind.ip().is_loopback(),
+        // With sign-in off, anyone who reaches the server can change the
+        // records, so a server on 127.0.0.1 answers only to this computer's
+        // names (against DNS rebinding). With sign-in on, it may sit behind a
+        // reverse proxy that passes the public name.
+        loopback_only: bind.ip().is_loopback() && !auth,
         desktop_secret: None,
         key: load_key(data_dir)?,
     })
@@ -355,6 +359,24 @@ mod tests {
         assert!(zip.filename.starts_with("pac-keeper-backup-") && zip.filename.ends_with(".zip"));
 
         assert!(d.fetch("/attachments/999999").await.unwrap().is_none(), "a missing file is a page");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn sign_in_lets_a_proxy_pass_the_public_name() {
+        let dir = std::env::temp_dir().join(format!("pac-proxy-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pool = open_single(&dir).await.unwrap();
+        let bind: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let status = |auth: bool| {
+            let router = web::router(single_state(pool.clone(), &dir, bind, auth).unwrap());
+            async move {
+                let req = Request::get("/login").header(header::HOST, "demo.packeeper.ca").body(Body::empty()).unwrap();
+                router.oneshot(req).await.unwrap().status()
+            }
+        };
+        assert_eq!(status(false).await, StatusCode::FORBIDDEN, "sign-in off: this computer's names only");
+        assert_eq!(status(true).await, StatusCode::OK, "sign-in on: the proxy's public name");
         let _ = std::fs::remove_dir_all(dir);
     }
 

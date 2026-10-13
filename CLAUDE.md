@@ -31,6 +31,7 @@ cd desktop && npm ci && npm run tauri dev  # the desktop app; set PAC_DATA_DIR t
 - `src/lib.rs` holds every module; `src/main.rs` is only the command line. `src/server.rs` starts each kind of server, including `start_desktop`.
 - `desktop/` — the Tauri app (its own crate and `Cargo.lock`, sharing `../target`). `desktop/src/main.rs` starts the server and the window, and routes navigation: file addresses (`server::is_file_path`) are fetched in-process and handed to the computer, and outside links open in the browser. `desktop/dist/` is only the start-up error page.
 - `static/app.js` — the `data-confirm` dialog for forms.
+- `deploy/opalstack/` — start and stop scripts for an Opalstack "Proxied Port" app. `.github/workflows/release.yml` packs them with the static Linux (musl) build.
 
 ## Rules that matter
 

@@ -145,12 +145,18 @@ fn hosted_or_404(app: &AppState) -> AppResult<Arc<Hosted>> {
     app.hosted.clone().ok_or(AppError::NotFound)
 }
 
+/// The visitor's address, for rate limits. The reverse proxy adds the address
+/// it saw to the end of X-Forwarded-For; earlier entries come from the visitor
+/// and can be made up.
 fn client_ip(headers: &HeaderMap) -> String {
     headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|s| s.trim().to_string())
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .rfind(|s| !s.is_empty())
+        .map(str::to_string)
         .unwrap_or_else(|| "unknown".into())
 }
 
@@ -1008,4 +1014,22 @@ pub async fn operator_action(
         _ => return Err(AppError::NotFound),
     };
     Ok(super::redirect_ok("/operator", &msg))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_ip_is_the_one_the_proxy_saw() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(client_ip(&headers), "unknown");
+        headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        assert_eq!(client_ip(&headers), "203.0.113.9");
+        // A visitor sends a made-up address; the proxy appends the real one.
+        headers.insert("x-forwarded-for", "10.0.0.1, 198.51.100.7".parse().unwrap());
+        assert_eq!(client_ip(&headers), "198.51.100.7");
+        headers.append("x-forwarded-for", "192.0.2.4".parse().unwrap());
+        assert_eq!(client_ip(&headers), "192.0.2.4");
+    }
 }

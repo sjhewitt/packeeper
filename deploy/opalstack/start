@@ -1,0 +1,42 @@
+#!/bin/bash
+# Starts PAC Keeper for one Opalstack "Proxied Port" app, unless it runs
+# already. Cron runs this every 10 minutes, so a stopped server comes back.
+#
+# Put this file, `stop`, and `env` in the app folder, ~/apps/APPNAME/.
+# `env` holds the settings; see env.example.
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$APP_DIR/pac-keeper.pid"
+LOG="$APP_DIR/pac-keeper.log"
+
+running() {
+  [ -f "$PIDFILE" ] && ps -p "$(cat "$PIDFILE")" -o args= 2>/dev/null | grep -q "pac-keeper"
+}
+
+if running; then
+  exit 0
+fi
+
+set -a
+# shellcheck source=/dev/null
+. "$APP_DIR/env"
+set +a
+
+# Keep one old log. The server writes little, so this is rare.
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 10000000 ]; then
+  mv "$LOG" "$LOG.1"
+fi
+
+mkdir -p "$PAC_DATA_DIR"
+cd "$APP_DIR"
+nohup "$PAC_KEEPER" serve >> "$LOG" 2>&1 &
+echo $! > "$PIDFILE"
+sleep 2
+if running; then
+  echo "PAC Keeper is running (process $(cat "$PIDFILE")). Log: $LOG"
+else
+  echo "PAC Keeper stopped at start. The end of $LOG says why:" >&2
+  tail -n 5 "$LOG" >&2
+  exit 1
+fi

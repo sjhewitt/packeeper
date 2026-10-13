@@ -1,0 +1,20 @@
+#!/bin/bash
+# Stops the PAC Keeper of this Opalstack app. The server finishes the
+# requests in progress, then exits.
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$APP_DIR/pac-keeper.pid"
+
+if [ -f "$PIDFILE" ]; then
+  PID="$(cat "$PIDFILE")"
+  if ps -p "$PID" -o args= 2>/dev/null | grep -q "pac-keeper"; then
+    kill "$PID"
+    for _ in $(seq 1 20); do
+      ps -p "$PID" > /dev/null 2>&1 || break
+      sleep 0.5
+    done
+  fi
+  rm -f "$PIDFILE"
+fi
+echo "PAC Keeper is stopped."
