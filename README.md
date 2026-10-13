@@ -286,7 +286,34 @@ demo.packeeper.ca {
 
 9. **Check.** On the demo, sign in and change a line item. This checks that form posts pass through the proxy. On the hosted server, sign up with a second email address, check that the email arrives, and approve the PAC on `/operator`.
 
-**Upgrades.** Download the new release as in step 1. Then run `~/apps/pk_demo/stop`, `~/apps/pk_app/stop`, copy the new program to `~/bin`, and start both again. Each server updates its databases when it starts. Make a backup first.
+**Upgrades.** Publish a release, and the Deploy workflow installs it (see below). By hand: download the release as in step 1, then run `~/downloads/pac-keeper/upgrade ~/downloads/pac-keeper`. The script backs up each hosted server's records, installs the new program and scripts, restarts every PAC Keeper app in `~/apps`, and checks that each one answers. If one does not, it puts the previous program back.
+
+### Automatic deploys
+
+`.github/workflows/deploy.yml` deploys each release when you publish it on GitHub. It copies `site/` to `pk_site`, then runs the `upgrade` script on the server, and last checks the three public addresses. You can also run it from the Actions tab for any release tag.
+
+Set it up once:
+
+1. Make a key for GitHub only, with no passphrase:
+
+   ```sh
+   ssh-keygen -t ed25519 -N "" -C "packeeper github deploy" -f ~/.ssh/packeeper_deploy
+   ```
+
+2. Let the key into the server, limited to commands and file copies (`restrict` turns off shells with a terminal and port forwarding):
+
+   ```sh
+   (printf 'restrict '; cat ~/.ssh/packeeper_deploy.pub) | ssh pk_user@opal1.opalstack.com 'cat >> ~/.ssh/authorized_keys'
+   ```
+
+3. Give the private key to GitHub, then delete your copy:
+
+   ```sh
+   gh secret set OPALSTACK_SSH_KEY --repo sjhewitt/packeeper < ~/.ssh/packeeper_deploy
+   rm ~/.ssh/packeeper_deploy
+   ```
+
+The workflow connects only to the server whose key it pins (`KNOWN_HOST` in the workflow). To approve each deploy before it runs, add a required reviewer under **Settings → Environments → opalstack**.
 
 ## Command reference
 

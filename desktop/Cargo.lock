@@ -4057,7 +4057,7 @@ dependencies = [
 
 [[package]]
 name = "pac-keeper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4092,7 +4092,7 @@ dependencies = [
 
 [[package]]
 name = "pac-keeper-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "pac-keeper",

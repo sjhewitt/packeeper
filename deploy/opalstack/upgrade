@@ -1,0 +1,103 @@
+#!/bin/bash
+# Installs a PAC Keeper release on an Opalstack account and restarts every
+# PAC Keeper app with it. The Deploy workflow (.github/workflows/deploy.yml)
+# runs it after you publish a release. You can also run it by hand:
+#
+#   ~/downloads/pac-keeper/upgrade ~/downloads/pac-keeper
+#
+# A PAC Keeper app is a folder in ~/apps with `env`, `start`, and `stop`.
+# Before the switch, the records of each hosted server are backed up, because
+# a new version can update the databases. If a server does not answer after
+# the switch, the previous program comes back.
+set -euo pipefail
+
+PKG="$(cd "${1:?usage: upgrade PACKAGE_FOLDER}" && pwd)"
+BIN="$HOME/bin/pac-keeper"
+NEW="$PKG/pac-keeper"
+
+if ! NEW_VERSION="$("$NEW" --version)"; then
+  echo "The new program does not run on this server." >&2
+  exit 1
+fi
+
+apps=()
+for dir in "$HOME"/apps/*/; do
+  dir="${dir%/}"
+  if [ -f "$dir/env" ] && [ -f "$dir/start" ] && [ -f "$dir/stop" ]; then
+    apps+=("$dir")
+  fi
+done
+if [ ${#apps[@]} -eq 0 ]; then
+  echo "There is no PAC Keeper app in ~/apps." >&2
+  exit 1
+fi
+
+# One setting from an app's env file.
+setting() {
+  (
+    set -a
+    # shellcheck source=/dev/null
+    . "$1/env"
+    printf '%s' "${!2:-}"
+  )
+}
+
+# True when every app answers on its port.
+all_answer() {
+  local app port code
+  for app in "${apps[@]}"; do
+    port="$(setting "$app" PAC_BIND)"
+    port="${port##*:}"
+    code=000
+    for _ in $(seq 1 15); do
+      code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/login" || true)"
+      [ "$code" = 200 ] && break
+      sleep 1
+    done
+    if [ "$code" != 200 ]; then
+      echo "${app##*/} does not answer on port $port (HTTP $code). Its log:" >&2
+      tail -n 5 "$app/pac-keeper.log" >&2 || true
+      return 1
+    fi
+  done
+}
+
+echo "Installing $NEW_VERSION in: ${apps[*]##*/}"
+
+if [ -x "$BIN" ]; then
+  for app in "${apps[@]}"; do
+    if [ "$(setting "$app" PAC_HOSTED)" = 1 ] && [ -d "$(setting "$app" PAC_DATA_DIR)" ]; then
+      "$BIN" --data-dir "$(setting "$app" PAC_DATA_DIR)" backup --to "$HOME/pac-keeper-backups"
+    fi
+  done
+  cp "$BIN" "$BIN.previous"
+fi
+
+for app in "${apps[@]}"; do
+  "$app/stop"
+done
+mkdir -p "$(dirname "$BIN")"
+install -m 755 "$NEW" "$BIN"
+for app in "${apps[@]}"; do
+  cp "$PKG/start" "$PKG/stop" "$app/"
+  "$app/start" || true
+done
+
+if all_answer; then
+  echo "Done: $("$BIN" --version) runs in ${apps[*]##*/}."
+  exit 0
+fi
+
+echo "A server did not start with $NEW_VERSION. Going back to the previous program." >&2
+if [ -f "$BIN.previous" ]; then
+  for app in "${apps[@]}"; do
+    "$app/stop" || true
+  done
+  install -m 755 "$BIN.previous" "$BIN"
+  for app in "${apps[@]}"; do
+    "$app/start" || true
+  done
+  echo "The previous program runs again. If it cannot open a database that the new version updated," >&2
+  echo "restore the records from the newest backup in ~/pac-keeper-backups." >&2
+fi
+exit 1

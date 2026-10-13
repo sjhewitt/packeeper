@@ -10,8 +10,11 @@ APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIDFILE="$APP_DIR/pac-keeper.pid"
 LOG="$APP_DIR/pac-keeper.log"
 
+# True when the process in the PID file is PAC Keeper. (No "ps | grep -q":
+# with pipefail, grep can stop ps early and make the check fail.)
 running() {
-  [ -f "$PIDFILE" ] && ps -p "$(cat "$PIDFILE")" -o args= 2>/dev/null | grep -q "pac-keeper"
+  local args
+  [ -f "$PIDFILE" ] && args="$(ps -p "$(cat "$PIDFILE")" -o args= 2>/dev/null)" && [[ "$args" == *pac-keeper* ]]
 }
 
 if running; then

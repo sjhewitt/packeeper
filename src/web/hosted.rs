@@ -164,14 +164,27 @@ async fn operator_emails(hosted: &Hosted) -> anyhow::Result<Vec<String>> {
     Ok(sqlx::query_scalar("SELECT email FROM people WHERE is_operator = 1").fetch_all(&hosted.control).await?)
 }
 
-/// Tells the operators about PACs that wait for approval.
+/// Sends one email. A failure does not undo the action that asked for the
+/// email: it goes to the log, and the caller tells the person what happened.
+async fn send_mail(hosted: &Hosted, to: &str, subject: &str, body: &str) -> bool {
+    match hosted.mailer.send(to, subject, body).await {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::error!("could not send the email \"{subject}\": {e:#}");
+            false
+        }
+    }
+}
+
+/// Tells the operators about PACs that wait for approval. The request is on
+/// /operator even when the email fails.
 async fn notify_operators(hosted: &Hosted, pac: &Pac, requester: &Person) -> anyhow::Result<()> {
     let body = format!(
         "{} <{}> asks to use PAC Keeper for:\n\n  {}\n  {}\n  {}\n\n{}\n\nApprove or reject it here: {}/operator\n",
         requester.name, requester.email, pac.name, pac.school, pac.district, pac.message, hosted.base_url
     );
     for to in operator_emails(hosted).await? {
-        hosted.mailer.send(&to, &format!("New PAC request: {}", pac.name), &body).await?;
+        send_mail(hosted, &to, &format!("New PAC request: {}", pac.name), &body).await;
     }
     Ok(())
 }
@@ -318,7 +331,17 @@ pub async fn signup(
         .await?;
     hosted.set_password(person.id, &f.password).await?;
     hosted.request_pac(person.id, &f.pac_name, &f.school, &f.district, &f.message).await?;
-    send_verification(&hosted, &person.email, &f.name, person.id).await?;
+    if !send_verification(&hosted, &person.email, &f.name, person.id).await? {
+        return notice(
+            "We could not send the email",
+            &format!(
+                "We made your account and saved the request for {}, but the email to confirm {email} could not be sent. \
+                 In a few minutes, sign in and choose \"Send the confirmation link again\".",
+                f.pac_name.trim()
+            ),
+            Some(("/login", "Sign in")),
+        );
+    }
     notice(
         "Check your email",
         &format!(
@@ -329,20 +352,20 @@ pub async fn signup(
     )
 }
 
-async fn send_verification(hosted: &Hosted, email: &str, name: &str, person_id: i64) -> anyhow::Result<()> {
+/// Sends a new confirmation link. `false` means the email could not be sent.
+async fn send_verification(hosted: &Hosted, email: &str, name: &str, person_id: i64) -> anyhow::Result<bool> {
     let token = hosted.create_token("verify", person_id, None, None, chrono::Duration::hours(48)).await?;
-    hosted
-        .mailer
-        .send(
-            email,
-            "Confirm your email for PAC Keeper",
-            &format!(
-                "Hello {name},\n\nConfirm your email address for PAC Keeper with this link:\n\n{}/verify/{token}\n\n\
-                 The link works for 48 hours. If you did not sign up, ignore this email.\n\nPAC Keeper\n",
-                hosted.base_url
-            ),
-        )
-        .await
+    Ok(send_mail(
+        hosted,
+        email,
+        "Confirm your email for PAC Keeper",
+        &format!(
+            "Hello {name},\n\nConfirm your email address for PAC Keeper with this link:\n\n{}/verify/{token}\n\n\
+             The link works for 48 hours. If you did not sign up, ignore this email.\n\nPAC Keeper\n",
+            hosted.base_url
+        ),
+    )
+    .await)
 }
 
 pub async fn verify(State(app): State<AppState>, UrlPath(token): UrlPath<String>) -> AppResult<Response> {
@@ -388,6 +411,8 @@ pub async fn resend_verification(
         && let Some(p) = hosted.person_by_email(&email).await?
         && !p.is_verified()
     {
+        // A failure is logged. The answer stays the same, so that it does not
+        // tell whether the address has an account.
         send_verification(&hosted, &p.email, &p.name, p.id).await?;
     }
     notice(
@@ -417,20 +442,20 @@ pub async fn forgot(State(app): State<AppState>, headers: HeaderMap, Form(f): Fo
         && p.password_hash.is_some()
     {
         let token = hosted.create_token("reset", p.id, None, None, chrono::Duration::hours(2)).await?;
-        hosted
-            .mailer
-            .send(
-                &p.email,
-                "Reset your PAC Keeper password",
-                &format!(
-                    "Hello {},\n\nSet a new password with this link:\n\n{}/reset/{token}\n\n\
-                     The link works for 2 hours. If you did not ask for it, ignore this email; your password stays the same.\n\nPAC Keeper\n",
-                    p.name, hosted.base_url
-                ),
-            )
-            .await?;
+        send_mail(
+            &hosted,
+            &p.email,
+            "Reset your PAC Keeper password",
+            &format!(
+                "Hello {},\n\nSet a new password with this link:\n\n{}/reset/{token}\n\n\
+                 The link works for 2 hours. If you did not ask for it, ignore this email; your password stays the same.\n\nPAC Keeper\n",
+                p.name, hosted.base_url
+            ),
+        )
+        .await;
     }
-    // The same answer whether or not the address has an account.
+    // The same answer whether or not the address has an account, and whether
+    // or not the email went out (a failure is in the log).
     notice(
         "Check your email",
         "If there is an account for that address, we sent it a link to set a new password.",
@@ -707,18 +732,23 @@ pub async fn invite(state: Ctx, Form(f): Form<InviteForm>) -> AppResult<Response
     } else {
         "a viewer, who can see the books and reports"
     };
-    h.hosted
-        .mailer
-        .send(
-            &email,
-            &format!("Join {} on PAC Keeper", h.pac.name),
-            &format!(
-                "Hello,\n\n{} invites you to the books of {} on PAC Keeper, as {role_text}.\n\nAccept with this link:\n\n{}/invite/{token}\n\n\
-                 The link works for 7 days.\n\nPAC Keeper\n",
-                h.person.name, h.pac.name, h.hosted.base_url
-            ),
-        )
-        .await?;
+    let sent = send_mail(
+        &h.hosted,
+        &email,
+        &format!("Join {} on PAC Keeper", h.pac.name),
+        &format!(
+            "Hello,\n\n{} invites you to the books of {} on PAC Keeper, as {role_text}.\n\nAccept with this link:\n\n{}/invite/{token}\n\n\
+             The link works for 7 days.\n\nPAC Keeper\n",
+            h.person.name, h.pac.name, h.hosted.base_url
+        ),
+    )
+    .await;
+    if !sent {
+        return Ok(super::redirect_err(
+            "/members",
+            &format!("The invitation email to {email} could not be sent. Try again in a few minutes."),
+        ));
+    }
     Ok(super::redirect_ok("/members", &format!("Invitation sent to {email}.")))
 }
 
@@ -970,10 +1000,10 @@ pub async fn operator_action(
     let msg = match action.as_str() {
         "approve" => {
             hosted.activate(id).await?;
-            if let Some(r) = &requester {
-                hosted
-                    .mailer
-                    .send(
+            let sent = match &requester {
+                Some(r) => {
+                    send_mail(
+                        &hosted,
                         &r.email,
                         &format!("{} is ready on PAC Keeper", pac.name),
                         &format!(
@@ -982,16 +1012,22 @@ pub async fn operator_action(
                             r.name, pac.name, hosted.base_url
                         ),
                     )
-                    .await?;
+                    .await
+                }
+                None => true,
+            };
+            if sent {
+                format!("{} approved.", pac.name)
+            } else {
+                format!("{} approved, but the email to its treasurer could not be sent. Tell them yourself.", pac.name)
             }
-            format!("{} approved.", pac.name)
         }
         "reject" => {
             hosted.set_status(id, "rejected").await?;
-            if let Some(r) = &requester {
-                hosted
-                    .mailer
-                    .send(
+            let sent = match &requester {
+                Some(r) => {
+                    send_mail(
+                        &hosted,
                         &r.email,
                         &format!("Your request for {}", pac.name),
                         &format!(
@@ -999,9 +1035,15 @@ pub async fn operator_action(
                             r.name, pac.name
                         ),
                     )
-                    .await?;
+                    .await
+                }
+                None => true,
+            };
+            if sent {
+                format!("{} rejected.", pac.name)
+            } else {
+                format!("{} rejected, but the email to its treasurer could not be sent.", pac.name)
             }
-            format!("{} rejected.", pac.name)
         }
         "suspend" => {
             hosted.set_status(id, "suspended").await?;
@@ -1031,5 +1073,73 @@ mod tests {
         assert_eq!(client_ip(&headers), "198.51.100.7");
         headers.append("x-forwarded-for", "192.0.2.4".parse().unwrap());
         assert_eq!(client_ip(&headers), "192.0.2.4");
+    }
+
+    /// When the mail server fails, the person sees what happened, not an
+    /// error page, and the action stays done.
+    #[tokio::test]
+    async fn a_failed_email_is_a_message_not_an_error() {
+        use axum::body::Body;
+        use tower::ServiceExt;
+
+        let dir = std::env::temp_dir().join(format!("pac-mailfail-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // The outbox is a file, so every send fails.
+        let outbox = dir.join("outbox");
+        std::fs::write(&outbox, b"").unwrap();
+        let hosted = Hosted::open(
+            &dir.join("root"),
+            "https://app.example.org".into(),
+            crate::hosted::mail::Mailer::Outbox(outbox),
+            1 << 30,
+        )
+        .await
+        .unwrap();
+        let control = hosted.control.clone();
+        let app = crate::web::router(AppState {
+            single: None,
+            hosted: Some(Arc::new(hosted)),
+            renderer: Arc::new(crate::reports::pdf::Renderer::new()),
+            pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
+            auth: true,
+            demo: None,
+            loopback_only: false,
+            desktop_secret: None,
+            key: axum_extra::extract::cookie::Key::generate(),
+        });
+        let post = |path: &'static str, form: &'static str| {
+            let app = app.clone();
+            async move {
+                let req = axum::http::Request::post(path)
+                    .header(axum::http::header::HOST, "app.example.org")
+                    .header(axum::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(form))
+                    .unwrap();
+                let res = app.oneshot(req).await.unwrap();
+                let status = res.status();
+                let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+                (status, String::from_utf8_lossy(&body).into_owned())
+            }
+        };
+
+        let (status, body) = post(
+            "/signup",
+            "pac_name=Alpha+PAC&school=Alpha+School&district=&name=Ann&email=ann%40example.org&password=a-long-password&message=",
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(body.contains("We could not send the email"), "{body}");
+        let requests: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pacs WHERE status = 'requested'")
+            .fetch_one(&control)
+            .await
+            .unwrap();
+        assert_eq!(requests, 1, "the request stays saved");
+
+        // A reset answers the same as always, so it does not tell whether the address has an account.
+        let (status, body) = post("/forgot", "email=ann%40example.org").await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(body.contains("If there is an account for that address"), "{body}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
