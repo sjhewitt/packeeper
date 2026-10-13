@@ -1,0 +1,109 @@
+{% extends "hosted/public.html" %}
+{% block title %}Visits{% endblock %}
+{% block width %}wide{% endblock %}
+{% block content %}
+<div class="page-head" style="margin-bottom: 8px;">
+  <div><h1>Visits</h1><p class="sub">From the web server's logs. Bots and your own visits are left out. Days are in UTC.</p></div>
+  <div class="actions">
+    <a class="small" href="/operator">Operator</a>
+    {% if configured %}<form method="post" action="/operator/stats/check" class="inline"><button class="secondary small">Read the logs now</button></form>{% endif %}
+  </div>
+</div>
+{% if let Some(m) = msg %}<div class="flash ok">{{ m }}</div>{% endif %}
+{% if !configured %}
+<div class="flash err">No logs are set. Set PAC_STATS_SITE_LOG, PAC_STATS_DEMO_LOG, PAC_STATS_APP_LOG, and PAC_STATS_GITHUB, then restart the server. See "Visit counts" in the README.</div>
+{% endif %}
+{% for c in report.checks %}{% if !c.error.is_empty() %}
+<div class="flash err">{{ c.source }}: {{ c.error }} ({{ c.checked_at }} UTC)</div>
+{% endif %}{% endfor %}
+
+<table>
+  <thead><tr><th></th><th></th><th class="num">Today</th><th class="num">Last 7 days</th><th class="num">Last 30 days</th><th class="num">All</th></tr></thead>
+  <tbody>
+  {% for r in report.rows %}
+    <tr>
+      <td>{% if r.first %}<strong>{{ r.log }}</strong>{% endif %}</td>
+      <td>{{ r.label }}</td>
+      <td class="num">{{ r.today }}</td>
+      <td class="num">{{ r.week }}</td>
+      <td class="num">{{ r.month }}</td>
+      <td class="num">{{ r.all }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small muted">A visit is one visitor (an address and a browser) on one day. Someone who comes back on three days makes three visits.</p>
+
+<div class="grid two">
+  <div>
+    <h2>Accounts</h2>
+    <table>
+      <tbody>
+        <tr><td>People with an account</td><td class="num">{{ report.accounts.people }}</td></tr>
+        <tr><td>With a confirmed email</td><td class="num">{{ report.accounts.verified }}</td></tr>
+        <tr><td>New in the last 7 days</td><td class="num">{{ report.accounts.new_week }}</td></tr>
+        <tr><td>Active PACs</td><td class="num">{{ report.accounts.pacs_active }}</td></tr>
+        <tr><td>PACs waiting for approval</td><td class="num">{{ report.accounts.pacs_waiting }}</td></tr>
+        <tr><td>Parents (hot lunch)</td><td class="num">{{ report.accounts.parents }}</td></tr>
+      </tbody>
+    </table>
+    <p class="small muted">Operators are left out.</p>
+  </div>
+  <div>
+    <h2>Downloads</h2>
+    {% if report.downloads.is_empty() %}<p class="muted">No download counts yet.</p>{% else %}
+    <table>
+      <thead><tr><th>App</th><th class="num">All</th><th class="num">Last 7 days</th></tr></thead>
+      <tbody>
+      {% for d in report.downloads %}
+        <tr><td>{{ d.platform }}</td><td class="num">{{ d.total }}</td><td class="num">{% if let Some(w) = d.week %}{{ w }}{% else %}<span class="muted">not yet</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="small muted">From GitHub, for every release. Linux counts include the automatic deploys.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if !report.sources.is_empty() %}
+<h2>Where visits came from (last 30 days)</h2>
+<div class="grid two">
+  {% for s in report.sources %}
+  <div>
+    <table>
+      <thead><tr><th>{{ s.log }}</th><th class="num">Visits</th></tr></thead>
+      <tbody>
+      {% for (name, n) in s.sources %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+  {% if !report.pages.is_empty() %}
+  <div>
+    <table>
+      <thead><tr><th>Demo pages</th><th class="num">Views</th></tr></thead>
+      <tbody>
+      {% for (name, n) in report.pages %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if !report.days.is_empty() %}
+<h2>By day</h2>
+<table>
+  <thead><tr><th>Day</th>{% for c in columns %}<th class="num">{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for d in report.days %}
+    <tr><td>{{ d.day }}</td>{% for n in d.counts %}<td class="num">{{ n }}</td>{% endfor %}</tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if !report.checks.is_empty() %}
+<p class="small muted">Last read:{% for c in report.checks %} {{ c.source }} {{ c.checked_at }} UTC{% if !loop.last %},{% endif %}{% endfor %}. The server reads the logs every hour.</p>
+{% endif %}
+{% endblock %}

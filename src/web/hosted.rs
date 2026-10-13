@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 use super::auth::time_days;
 use super::{AppError, AppResult, AppState, Ctx, CurrentUser, Flash, HostedCtx, Layout, UserExt, render};
-use crate::hosted::{Hosted, Membership, Pac, Person, looks_like_email};
+use crate::hosted::{Hosted, Membership, Pac, Person, looks_like_email, stats};
 use crate::models::User;
 
 pub const COOKIE: &str = "pk_session";
@@ -1130,6 +1130,40 @@ pub async fn operator_action(
     Ok(super::redirect_ok("/operator", &msg))
 }
 
+#[derive(Template)]
+#[template(path = "hosted/stats.html")]
+struct StatsPage {
+    report: stats::Report,
+    columns: Vec<&'static str>,
+    configured: bool,
+    msg: Option<String>,
+}
+
+/// Visit counts for the operator: the website, the demo, the app, downloads,
+/// and accounts.
+pub async fn stats_page(
+    State(app): State<AppState>,
+    SignedIn(person): SignedIn,
+    axum_extra::extract::Query(flash): axum_extra::extract::Query<Flash>,
+) -> AppResult<Response> {
+    let hosted = hosted_or_404(&app)?;
+    require_operator(&person)?;
+    render(StatsPage {
+        report: stats::report(&hosted.control).await?,
+        columns: stats::DAY_COLUMNS.iter().map(|c| c.2).collect(),
+        configured: !hosted.stats.is_empty(),
+        msg: flash.msg,
+    })
+}
+
+/// Reads the logs and GitHub now, without waiting for the hour.
+pub async fn stats_check(State(app): State<AppState>, SignedIn(person): SignedIn) -> AppResult<Response> {
+    let hosted = hosted_or_404(&app)?;
+    require_operator(&person)?;
+    stats::collect(&hosted.control, &hosted.stats).await?;
+    Ok(super::redirect_ok("/operator/stats", "Read the logs again."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1213,6 +1247,77 @@ mod tests {
         let (status, body) = post("/forgot", "email=ann%40example.org").await;
         assert_eq!(status, axum::http::StatusCode::OK);
         assert!(body.contains("If there is an account for that address"), "{body}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Only an operator sees the visit counts.
+    #[tokio::test]
+    async fn only_the_operator_sees_the_visits() {
+        use axum::body::Body;
+        use axum::http::{StatusCode, header};
+        use tower::ServiceExt;
+
+        let dir = std::env::temp_dir().join(format!("pac-stats-web-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mailer = crate::hosted::mail::Mailer::Outbox(dir.join("outbox"));
+        let hosted = Hosted::open(&dir.join("root"), "https://app.example.org".into(), mailer, 1 << 30).await.unwrap();
+        for (email, operator) in [("op@example.org", true), ("ann@example.org", false)] {
+            let person = hosted.ensure_person(email, "Someone").await.unwrap();
+            hosted.set_password(person.id, "a-long-password").await.unwrap();
+            hosted.mark_verified(person.id).await.unwrap();
+            sqlx::query("UPDATE people SET is_operator = ? WHERE id = ?")
+                .bind(operator)
+                .bind(person.id)
+                .execute(&hosted.control)
+                .await
+                .unwrap();
+        }
+        let app = crate::web::router(AppState {
+            single: None,
+            hosted: Some(Arc::new(hosted)),
+            renderer: Arc::new(crate::reports::pdf::Renderer::new()),
+            pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
+            auth: true,
+            demo: None,
+            loopback_only: false,
+            desktop_secret: None,
+            lunch: None,
+            key: axum_extra::extract::cookie::Key::generate(),
+        });
+        let send = |method: &str, path: &str, cookie: &str, form: String| {
+            let req = axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::HOST, "app.example.org")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::COOKIE, cookie)
+                .body(Body::from(form))
+                .unwrap();
+            app.clone().oneshot(req)
+        };
+        let mut cookies = Vec::new();
+        for email in ["op%40example.org", "ann%40example.org"] {
+            let res = send("POST", "/login", "", format!("username={email}&password=a-long-password")).await.unwrap();
+            let cookie = res
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .find(|v| v.starts_with("pk_session="));
+            cookies.push(cookie.expect("a session cookie").split(';').next().unwrap().to_string());
+        }
+
+        let res = send("GET", "/operator/stats", &cookies[0], String::new()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("No logs are set") && body.contains("People with an account"), "{body}");
+        let res = send("GET", "/operator/stats", &cookies[1], String::new()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let res = send("POST", "/operator/stats/check", &cookies[1], String::new()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let res = send("GET", "/operator/stats", "", String::new()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

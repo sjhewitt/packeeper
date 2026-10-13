@@ -186,6 +186,24 @@ app.packeeper.ca {
 
 With Docker: `docker run -d -p 127.0.0.1:8080:8080 -v pac-hosted:/data -e PAC_HOSTED=1 -e PAC_BASE_URL=https://app.packeeper.ca -e PAC_SMTP_URL=... -e PAC_MAIL_FROM=... pac-keeper`
 
+### Visit counts
+
+The operator page links to **Visits** (`/operator/stats`), which only operators can open. It shows visits to the website, the demo, and the app, sign-ups and sign-ins, where visitors came from, the demo pages they opened, downloads of the desktop apps, and the number of accounts and PACs.
+
+The server reads the web server's access logs (nginx's "combined" format) every hour and saves a count for each day, so the counts stay after the logs rotate. Set the logs and the GitHub repository it reads:
+
+```sh
+PAC_STATS_SITE_LOG=/home/pk_user/logs/sites/packeeper/access.log
+PAC_STATS_DEMO_LOG=/home/pk_user/logs/sites/pk_demo/access.log
+PAC_STATS_APP_LOG=/home/pk_user/logs/sites/pk_app/access.log
+PAC_STATS_GITHUB=sjhewitt/packeeper
+```
+
+- **Counts only.** No address, browser, or app path is saved. A visit is one address with one browser on one day.
+- **Left out:** bots (browser names that are not a person's, requests that only attacks send, and three or more missing pages) and you: any browser that opened `/operator` on the app.
+- **Days are in UTC.** The first day in a log can be there only in part, so its counts never go down. Later days are read again in full every hour.
+- **On the command line:** `pac-keeper --data-dir DIR stats` prints the same counts. Add `--now` to read the logs first (it needs the `PAC_STATS_*` settings).
+
 **Backups are your job as the operator.** `pac-keeper --data-dir DIR backup --to BACKUP_DIR` copies every database, receipt, and bank file into a dated folder. It is safe while the server runs. Run it every night (from cron or a systemd timer), copy the result off the server (for example with `rclone` to encrypted storage), and test a restore. Before you take real PAC data, also:
 
 - publish a privacy policy and terms of service
@@ -357,6 +375,7 @@ pac-keeper [--data-dir DIR] [serve [--bind ADDR] [--auth] [--demo [--demo-reset-
 pac-keeper --data-dir DIR serve --hosted --base-url URL [--quota-mb N]
 pac-keeper --data-dir DIR operator EMAIL [--name NAME]
 pac-keeper --data-dir DIR backup --to BACKUP_DIR
+pac-keeper --data-dir DIR stats [--now]
 pac-keeper user add NAME [--role treasurer|viewer] [--name "Display name"]
 pac-keeper user list
 pac-keeper user remove NAME

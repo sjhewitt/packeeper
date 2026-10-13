@@ -4,6 +4,7 @@
 //! can leave with its folder.
 
 pub mod mail;
+pub mod stats;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -108,6 +109,8 @@ pub struct Hosted {
     pub mailer: mail::Mailer,
     /// Most bytes of receipts one PAC may store.
     pub quota_bytes: i64,
+    /// Where the operator's visit counts come from; see `stats`.
+    pub stats: stats::Sources,
     pools: Mutex<HashMap<i64, SqlitePool>>,
     limiter: Mutex<HashMap<String, (Instant, u32)>>,
 }
@@ -133,6 +136,7 @@ impl Hosted {
             base_url: base_url.trim_end_matches('/').to_string(),
             mailer,
             quota_bytes,
+            stats: stats::Sources::default(),
             pools: Mutex::new(HashMap::new()),
             limiter: Mutex::new(HashMap::new()),
         })

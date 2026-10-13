@@ -107,13 +107,17 @@ pub async fn serve_hosted(
     quota_mb: i64,
     hot_lunch: bool,
 ) -> anyhow::Result<()> {
-    let hosted = open_hosted(dir, base_url, quota_mb).await?;
+    let mut hosted = open_hosted(dir, base_url, quota_mb).await?;
+    hosted.stats = crate::hosted::stats::Sources::from_env()?;
     let operators: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM people WHERE is_operator = 1").fetch_one(&hosted.control).await?;
     println!("PAC Keeper (hosted) is running at http://{bind}");
     println!("Public address: {}", hosted.base_url);
     println!("Data folder: {}", dir.canonicalize().unwrap_or(dir.to_path_buf()).display());
     println!("Email: {}", hosted.mailer.describe());
+    if !hosted.stats.is_empty() {
+        println!("Visit counts: {}, every hour", hosted.stats.describe());
+    }
     let lunch = if hot_lunch {
         let lunch = crate::lunch::Lunch::from_env()?;
         match &lunch.stripe {
@@ -127,9 +131,11 @@ pub async fn serve_hosted(
     if operators == 0 {
         println!("No operator yet. Add one with: pac-keeper --data-dir {} operator you@example.org", dir.display());
     }
+    let hosted = Arc::new(hosted);
+    crate::hosted::stats::spawn_hourly(hosted.clone());
     let state = web::AppState {
         single: None,
-        hosted: Some(Arc::new(hosted)),
+        hosted: Some(hosted),
         renderer: Arc::new(reports::pdf::Renderer::new()),
         pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
         auth: true,

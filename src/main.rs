@@ -62,6 +62,13 @@ enum Command {
         #[arg(long, default_value = "Operator")]
         name: String,
     },
+    /// Show the visit counts of a hosted server: the website, the demo, the
+    /// app, downloads, and accounts. The server reads the logs every hour.
+    Stats {
+        /// Read the logs and GitHub first (the PAC_STATS_* settings).
+        #[arg(long)]
+        now: bool,
+    },
     /// Copy every database, receipt, and bank file into a dated folder.
     /// Safe while the server runs. Works on a hosted or a single-PAC folder.
     Backup {
@@ -157,6 +164,17 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Command::Operator { email, name } => operator(&dir, &email, &name).await,
+        Command::Stats { now } => {
+            if !dir.join("control.db").exists() {
+                anyhow::bail!("{} is not the data folder of a hosted server", dir.display());
+            }
+            let hosted = server::open_hosted(&dir, String::new(), 1024).await?;
+            if now {
+                hosted::stats::collect(&hosted.control, &hosted::stats::Sources::from_env()?).await?;
+            }
+            print!("{}", hosted::stats::report(&hosted.control).await?.text()?);
+            Ok(())
+        }
         Command::Backup { to } => {
             let dest = hosted::backup(&dir, &to).await?;
             println!("Copied every database, receipt, and bank file to {}", dest.display());

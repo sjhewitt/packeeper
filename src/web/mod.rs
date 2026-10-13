@@ -228,6 +228,8 @@ pub fn router(state: AppState) -> Router {
         .route("/members/{person}/remove", post(hosted::remove_member))
         .route("/operator", get(hosted::operator_page))
         .route("/operator/pacs/{id}/{action}", post(hosted::operator_action))
+        .route("/operator/stats", get(hosted::stats_page))
+        .route("/operator/stats/check", post(hosted::stats_check))
         .route("/static/app.css", get(|| async { static_file("text/css", include_str!("../../static/app.css")) }))
         .route("/static/app.js", get(|| async { static_file("text/javascript", include_str!("../../static/app.js")) }))
         .route(

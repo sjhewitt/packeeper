@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head" style="margin-bottom: 8px;">
   <div><h1>Operator</h1><p class="sub">PACs on this server</p></div>
-  <div class="actions"><a class="small" href="/pacs">Your PACs</a></div>
+  <div class="actions"><a class="small" href="/operator/stats">Visits</a> <a class="small" href="/pacs">Your PACs</a></div>
 </div>
 {% if let Some(m) = msg %}<div class="flash ok">{{ m }}</div>{% endif %}
 

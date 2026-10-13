@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: The release to deploy, such as v0.1.1
+        description: The release to deploy, such as v0.2.0
         required: true
 
 permissions:
