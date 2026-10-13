@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Hot lunch{% endblock %} · {{ f.pac.name }}</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/family"><img src="/static/logo.svg" alt="" width="28" height="28"><span>Hot lunch</span></a>
+    <nav><a href="/family" class="on">{{ f.pac.name }}</a></nav>
+    <div class="user"><a href="/pacs">{{ f.person.name }}</a><form method="post" action="/logout"><button>Sign out</button></form></div>
+  </header>
+  <main class="family">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="app no-print">Hot lunch for {{ f.pac.name }} · <a href="https://packeeper.ca" target="_blank" rel="noopener">PAC Keeper</a></footer>
+</body>
+</html>

@@ -10,6 +10,7 @@ pub mod fiscal;
 pub mod hosted;
 pub mod import;
 pub mod ledger;
+pub mod lunch;
 pub mod models;
 pub mod money;
 pub mod reports;

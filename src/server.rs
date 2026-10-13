@@ -49,6 +49,7 @@ fn single_state(
         // reverse proxy that passes the public name.
         loopback_only: bind.ip().is_loopback() && !auth,
         desktop_secret: None,
+        lunch: None,
         key: load_key(data_dir)?,
     })
 }
@@ -99,7 +100,13 @@ pub async fn serve(
 }
 
 /// Runs a hosted multi-PAC server until Ctrl-C.
-pub async fn serve_hosted(dir: &Path, bind: SocketAddr, base_url: String, quota_mb: i64) -> anyhow::Result<()> {
+pub async fn serve_hosted(
+    dir: &Path,
+    bind: SocketAddr,
+    base_url: String,
+    quota_mb: i64,
+    hot_lunch: bool,
+) -> anyhow::Result<()> {
     let hosted = open_hosted(dir, base_url, quota_mb).await?;
     let operators: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM people WHERE is_operator = 1").fetch_one(&hosted.control).await?;
@@ -107,6 +114,16 @@ pub async fn serve_hosted(dir: &Path, bind: SocketAddr, base_url: String, quota_
     println!("Public address: {}", hosted.base_url);
     println!("Data folder: {}", dir.canonicalize().unwrap_or(dir.to_path_buf()).display());
     println!("Email: {}", hosted.mailer.describe());
+    let lunch = if hot_lunch {
+        let lunch = crate::lunch::Lunch::from_env()?;
+        match &lunch.stripe {
+            Some(_) => println!("Hot lunch: on, with card payments ({})", lunch.fees.express_terms()),
+            None => println!("Hot lunch: on, without card payments (PAC_STRIPE_SECRET_KEY is not set)"),
+        }
+        Some(Arc::new(lunch))
+    } else {
+        None
+    };
     if operators == 0 {
         println!("No operator yet. Add one with: pac-keeper --data-dir {} operator you@example.org", dir.display());
     }
@@ -119,6 +136,7 @@ pub async fn serve_hosted(dir: &Path, bind: SocketAddr, base_url: String, quota_
         demo: None,
         loopback_only: false,
         desktop_secret: None,
+        lunch,
         key: load_key(dir)?,
     };
     let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;

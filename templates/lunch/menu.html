@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/lunch">Hot lunch</a> ›</p>
+    <h1>Menu and divisions</h1>
+    <p class="sub">The items the caterer offers, and the classes that lunches go to.</p>
+  </div>
+</div>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Menu items</h2>
+    {% for i in items %}
+    <form class="row-form" method="post" action="/lunch/items/{{ i.id }}">
+      <input type="text" name="name" value="{{ i.name }}" aria-label="Name" required>
+      <input type="text" name="description" value="{{ i.description }}" placeholder="Description" aria-label="Description">
+      <input type="text" class="amount" name="price" value="{{ i.price().plain() }}" aria-label="Price" required>
+      <label class="check"><input type="checkbox" name="active" {% if i.active %}checked{% endif %}> On the menu</label>
+      {% if layout.can_edit %}<button class="secondary small">Save</button>{% endif %}
+    </form>
+    {% endfor %}
+    {% if items.is_empty() %}<p class="muted">No items yet.</p>{% endif %}
+    {% if layout.can_edit %}
+    <form method="post" action="/lunch/items" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;">
+      <h3>Add an item</h3>
+      <div class="fields">
+        <div class="field"><label for="item_name">Name</label><input type="text" id="item_name" name="name" placeholder="Pizza (cheese)" required></div>
+        <div class="field"><label for="item_price">Price</label><input type="text" class="amount" id="item_price" name="price" placeholder="5.50" required></div>
+      </div>
+      <div class="field"><label for="item_description">Description</label><input type="text" id="item_description" name="description" placeholder="Two slices and a juice box"></div>
+      <input type="hidden" name="active" value="1">
+      <button>Add item</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>Divisions</h2>
+    <p class="small muted">Parents choose a division for each child. Delivery sheets list lunches by division, in this order.</p>
+    {% for d in divisions %}
+    <form class="row-form" method="post" action="/lunch/divisions/{{ d.id }}">
+      <input type="text" name="name" value="{{ d.name }}" aria-label="Name" required>
+      <input type="text" name="sort_order" value="{{ d.sort_order }}" aria-label="Order" style="max-width: 70px;">
+      <label class="check"><input type="checkbox" name="active" {% if d.active %}checked{% endif %}> In use</label>
+      {% if layout.can_edit %}<button class="secondary small">Save</button>{% endif %}
+    </form>
+    {% endfor %}
+    {% if divisions.is_empty() %}<p class="muted">No divisions yet.</p>{% endif %}
+    {% if layout.can_edit %}
+    <form method="post" action="/lunch/divisions" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;">
+      <h3>Add a division</h3>
+      <div class="fields">
+        <div class="field"><label for="div_name">Name</label><input type="text" id="div_name" name="name" placeholder="Div 3 – Ms. Lee (Gr 2/3)" required></div>
+        <div class="field"><label for="div_order">Order</label><input type="text" id="div_order" name="sort_order" placeholder="3"></div>
+      </div>
+      <button>Add division</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -16,6 +16,7 @@ clap = { version = "4.6.7", features = ["derive", "env"] }
 csv = "1.4.0"
 encoding_rs = "0.8.42"
 hex = "0.4.3"
+hmac = "0.13.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "hostname", "pool", "tokio1", "tokio1-rustls", "rustls-platform-verifier", "ring"] }
 mime_guess = "2.0.5"
 rand = "0.10.3"
@@ -34,6 +35,7 @@ typst = "0.15"
 typst-as-lib = { version = "0.17.0", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
 typst-layout = "0.15"
 typst-pdf = "0.15"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 
 [profile.release]

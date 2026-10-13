@@ -50,6 +50,11 @@ enum Command {
         /// Receipt storage for each PAC on a hosted server, in megabytes.
         #[arg(long, env = "PAC_QUOTA_MB", default_value_t = 1024)]
         quota_mb: i64,
+        /// Turn on hot lunch ordering (a preview) on a hosted server. Each PAC
+        /// then turns it on in Settings. Card payments also need the Stripe
+        /// settings; see the README.
+        #[arg(long, env = "PAC_HOT_LUNCH", action = clap::ArgAction::SetTrue, value_parser = clap::builder::BoolishValueParser::new())]
+        hot_lunch: bool,
     },
     /// Make someone an operator of a hosted server: they approve new PACs.
     Operator {
@@ -128,15 +133,19 @@ async fn main() -> anyhow::Result<()> {
         hosted: false,
         base_url: "http://127.0.0.1:8080".into(),
         quota_mb: 1024,
+        hot_lunch: false,
     };
     match cli.command.unwrap_or(default) {
-        Command::Serve { bind, hosted: true, demo, base_url, quota_mb, .. } => {
+        Command::Serve { bind, hosted: true, demo, base_url, quota_mb, hot_lunch, .. } => {
             if demo {
                 anyhow::bail!("--demo runs on a single-PAC folder, not with --hosted");
             }
-            server::serve_hosted(&dir, bind, base_url, quota_mb).await
+            server::serve_hosted(&dir, bind, base_url, quota_mb, hot_lunch).await
         }
-        Command::Serve { bind, auth, demo, demo_reset_minutes, .. } => {
+        Command::Serve { bind, auth, demo, demo_reset_minutes, hot_lunch, .. } => {
+            if hot_lunch {
+                println!("Hot lunch needs a hosted server (--hosted), where parents can sign in. It stays off.");
+            }
             let pool = server::open_single(&dir).await?;
             server::serve(pool, &dir, bind, auth, demo.then_some(demo_reset_minutes)).await
         }

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Hot lunch <span class="tag warn">preview</span></h1>
+    <p class="sub">Parents order lunches online for each period, and pay by card, e-transfer, or cash. You see what to buy each day, and for which class.</p>
+  </div>
+  {% if enabled %}
+  <div class="actions">
+    <a class="button secondary" href="/lunch/menu">Menu and divisions</a>
+    <a class="button secondary" href="/lunch/setup">Payments and families</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if !enabled %}
+<div class="panel" style="max-width: 760px;">
+  <h2>Hot lunch is off</h2>
+  <p>When you turn it on, you can set a menu, open ordering periods, and share a sign-up link with families. Parents get their own sign-in. They see only the hot lunch pages, never the PAC's books.</p>
+  {% if layout.can_edit %}
+  <form method="post" action="/lunch/enable"><input type="hidden" name="on" value="1"><button>Turn hot lunch on</button></form>
+  {% endif %}
+</div>
+{% else %}
+
+<div class="grid cards">
+  <div class="card general">
+    <div class="label">Menu</div>
+    <div class="value">{{ items }} item(s)</div>
+    <div class="note">{{ divisions }} division(s) · <a href="/lunch/menu">change</a></div>
+  </div>
+  <div class="card {% if self.can_pay() %}general{% else %}alert{% endif %}">
+    <div class="label">Payments</div>
+    <div class="note" style="margin-top: 6px; font-size: 14px; line-height: 1.7;">
+      {% if let Some(s) = stripe %}
+        {% if s.charges_enabled %}<span class="tag good">cards on</span>{% else %}<span class="tag warn">card set-up not finished</span>{% endif %}
+        {% if s.kind == "standard" %}own Stripe{% else %}through PAC Keeper{% endif %}
+      {% else if cards_available %}<span class="tag muted">no cards</span>
+      {% else %}<span class="tag muted">no cards on this server</span>{% endif %}
+      <br>{% if offline.etransfer() %}E-transfer to {{ offline.etransfer_email }}{% else %}No e-transfer{% endif %}
+      · {% if offline.cash %}cash{% else %}no cash{% endif %}
+      <br><a href="/lunch/setup">Set up payments</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">Families</div>
+    <div class="value">{{ families }}</div>
+    <div class="note"><a href="/lunch/setup">Sign-up link and parents</a></div>
+  </div>
+</div>
+
+{% if !self.can_pay() %}<div class="flash err">Parents cannot pay yet. <a href="/lunch/setup">Set up a way to pay</a> before you open a period.</div>{% endif %}
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Ordering periods</h2></div>
+  <table>
+    <thead><tr><th>Period</th><th>Order by</th><th>Status</th><th class="num">Orders</th><th class="num">Paid</th><th class="num">Waiting</th><th class="num">To the PAC</th></tr></thead>
+    <tbody>
+    {% for (p, m) in periods %}
+      <tr>
+        <td><a href="/lunch/periods/{{ p.id }}">{{ p.name }}</a></td>
+        <td class="nowrap">{{ p.order_deadline.format("%b %-d, %Y") }}{% if p.status == "open" && p.order_deadline < today %} <span class="tag muted">past</span>{% endif %}</td>
+        <td>{% if p.status == "open" %}<span class="tag good">open</span>{% else if p.status == "closed" %}<span class="tag muted">closed</span>{% else %}<span class="tag warn">draft</span>{% endif %}</td>
+        <td class="num">{{ m.orders }}</td>
+        <td class="num">{{ m.paid }}</td>
+        <td class="num">{{ m.waiting }}</td>
+        <td class="num"><strong>{{ m.net() }}</strong></td>
+      </tr>
+    {% endfor %}
+    {% if periods.is_empty() %}<tr><td colspan="7" class="muted" style="padding: 18px;">No periods yet. Add one below.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if layout.can_edit %}
+<form class="panel" method="post" action="/lunch/periods" style="max-width: 760px;">
+  <h2>Add a period</h2>
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" placeholder="January 2027" required></div>
+    <div class="field"><label for="order_deadline">Last day to order</label><input type="date" id="order_deadline" name="order_deadline" required></div>
+  </div>
+  <button>Add period</button>
+</form>
+{% endif %}
+
+<details class="panel help">
+  <summary>How hot lunch works</summary>
+  <ol class="small">
+    <li>Set the menu and the divisions (classes) under <a href="/lunch/menu">Menu and divisions</a>.</li>
+    <li>Set up payments, and share the sign-up link with families, under <a href="/lunch/setup">Payments and families</a>.</li>
+    <li>Add a period, add its lunch days with the items for each day, and open it.</li>
+    <li>Parents add their children and order. Card payments are confirmed by Stripe. Mark e-transfer and cash orders paid when the money arrives.</li>
+    <li>After the deadline, close the period. Order from the caterer with the totals, and print a delivery sheet for each day.</li>
+    <li>The money reaches the bank as Stripe payouts or e-transfers. Import the bank file as usual, and give those deposits the hot lunch line item and fundraiser.</li>
+  </ol>
+</details>
+
+{% if layout.can_edit %}
+<form method="post" action="/lunch/enable" data-confirm="Turn hot lunch off? Parents cannot order until you turn it on again. The records stay.">
+  <input type="hidden" name="on" value="0"><button class="danger small">Turn hot lunch off</button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

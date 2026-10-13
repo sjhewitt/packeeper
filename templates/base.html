@@ -18,6 +18,7 @@
       {% if layout.can_edit %}<a href="/import" {% if layout.nav == "import" %}class="on"{% endif %}>Import</a>{% endif %}
       <a href="/budget" {% if layout.nav == "budget" %}class="on"{% endif %}>Budget</a>
       <a href="/fundraisers" {% if layout.nav == "fundraisers" %}class="on"{% endif %}>Fundraisers</a>
+      {% if layout.lunch %}<a href="/lunch" {% if layout.nav == "lunch" %}class="on"{% endif %}>Hot lunch</a>{% endif %}
       <a href="/gaming" {% if layout.nav == "gaming" %}class="on"{% endif %}>Gaming</a>
       <a href="/reports" {% if layout.nav == "reports" %}class="on"{% endif %}>Reports</a>
       <a href="/settings" {% if layout.nav == "settings" %}class="on"{% endif %}>Settings</a>

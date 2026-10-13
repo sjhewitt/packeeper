@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/lunch">Hot lunch</a> ›</p>
+    <h1>{{ period.name }}</h1>
+    <p class="sub">{{ period.status_label() }} · order by {{ period.order_deadline.format("%A, %B %-d, %Y") }}</p>
+  </div>
+</div>
+
+<div class="grid cards">
+  <div class="card general"><div class="label">Paid</div><div class="value">{{ money.paid }}</div><div class="note">{{ money.orders }} order(s) in all</div></div>
+  <div class="card"><div class="label">Card fees</div><div class="value">{{ money.fees }}</div><div class="note">taken by PAC Keeper's Stripe</div></div>
+  <div class="card general"><div class="label">To the PAC</div><div class="value">{{ money.net() }}</div><div class="note">paid, less card fees</div></div>
+  <div class="card {% if money.waiting.cents() > 0 %}alert{% endif %}"><div class="label">Waiting for payment</div><div class="value">{{ money.waiting }}</div><div class="note">e-transfer and cash</div></div>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 4px;">What to buy</h2><p class="small muted" style="margin: 0 0 8px;">Paid orders, and orders waiting for e-transfer or cash. Card orders count once paid.</p></div>
+  <table>
+    <thead><tr><th>Day</th><th>Items</th><th class="num">Lunches</th><th></th></tr></thead>
+    <tbody>
+    {% for c in counts %}{% if let Some(d) = c.day %}
+      <tr>
+        <td class="nowrap">{{ d.label() }}</td>
+        <td>{% for (name, n) in c.items %}{{ name }} × {{ n }}{% if !loop.last %}, {% endif %}{% endfor %}{% if c.items.is_empty() %}<span class="muted">none</span>{% endif %}</td>
+        <td class="num">{{ c.total() }}</td>
+        <td class="num"><a class="small" href="/lunch/days/{{ d.id }}/sheet" target="{{ layout.new_tab() }}">Delivery sheet</a></td>
+      </tr>
+    {% endif %}{% endfor %}
+    {% if counts.is_empty() %}<tr><td colspan="4" class="muted" style="padding: 18px;">No lunch days yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Orders</h2></div>
+  <table>
+    <thead><tr><th>Order</th><th>Parent</th><th>Paid by</th><th>Status</th><th class="num">Total</th><th class="num">Fee</th></tr></thead>
+    <tbody>
+    {% for (o, who) in orders %}
+      <tr>
+        <td><a href="/lunch/orders/{{ o.id }}">{{ o.reference() }}</a></td>
+        <td>{{ who }}</td>
+        <td>{{ o.method_label() }}</td>
+        <td>{% if o.status == "paid" %}<span class="tag good">paid</span>{% else if o.status == "pending" && o.method != "card" %}<span class="tag warn">{{ o.status_label() }}</span>{% else %}<span class="tag muted">{{ o.status_label() }}</span>{% endif %}</td>
+        <td class="num">{{ o.total() }}</td>
+        <td class="num">{% if o.fee_cents > 0 %}{{ o.fee() }}{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if orders.is_empty() %}<tr><td colspan="6" class="muted" style="padding: 18px;">No orders yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 4px;">Lunch days</h2><p class="small muted" style="margin: 0 0 8px;">Tick the items on each day's menu. Items that a child has ordered stay on the day.</p></div>
+  <table>
+    <thead><tr><th>Day</th><th>Menu</th><th></th></tr></thead>
+    <tbody>
+    {% for (d, menu) in days %}
+      <tr>
+        <td class="nowrap">{{ d.label() }}</td>
+        <td>
+          <form class="row-form" style="margin: 0;" method="post" action="/lunch/days/{{ d.id }}">
+            {% for i in items %}<label class="check"><input type="checkbox" name="item_id" value="{{ i.id }}" {% if self.on_day(menu, i.id) %}checked{% endif %}> {{ i.name }}</label>{% endfor %}
+            {% if layout.can_edit %}<button class="secondary small">Save</button>{% endif %}
+          </form>
+        </td>
+        <td class="num">{% if layout.can_edit %}<form method="post" action="/lunch/days/{{ d.id }}/delete" class="inline" data-confirm="Remove {{ d.label() }}?"><button class="danger small">Remove</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if days.is_empty() %}<tr><td colspan="3" class="muted" style="padding: 18px;">No lunch days yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+
+  {% if layout.can_edit %}
+  <form method="post" action="/lunch/periods/{{ period.id }}/days" style="padding: 14px 18px 16px; border-top: 1px solid var(--line);">
+    <h3 style="margin-top: 0;">Add lunch days</h3>
+    <div class="fields">
+      <div class="field"><label for="from">From</label><input type="date" id="from" name="from" required></div>
+      <div class="field"><label for="to">To</label><input type="date" id="to" name="to" required></div>
+    </div>
+    <div class="field"><label>On</label>
+      <div class="row-form">
+        {% for (n, name) in [(1, "Monday"), (2, "Tuesday"), (3, "Wednesday"), (4, "Thursday"), (5, "Friday")] %}
+        <label class="check"><input type="checkbox" name="weekday" value="{{ n }}"> {{ name }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="field"><label>Items each day</label>
+      <div class="row-form">
+        {% for i in items %}<label class="check"><input type="checkbox" name="item_id" value="{{ i.id }}" checked> {{ i.name }} ({{ i.price() }})</label>{% endfor %}
+        {% if items.is_empty() %}<span class="muted">Add items under <a href="/lunch/menu">Menu and divisions</a> first.</span>{% endif %}
+      </div>
+    </div>
+    <p class="small muted">Days already in the period stay as they are. Leave out school holidays and Pro-D days: remove them after.</p>
+    <button>Add days</button>
+  </form>
+  {% endif %}
+</div>
+
+<form class="panel" method="post" action="/lunch/periods/{{ period.id }}" style="max-width: 760px;">
+  <h2>Details</h2>
+  <div class="fields">
+    <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" value="{{ period.name }}" required></div>
+    <div class="field"><label for="order_deadline">Last day to order</label><input type="date" id="order_deadline" name="order_deadline" value="{{ period.order_deadline }}" required></div>
+  </div>
+  <div class="field"><label for="notes">Notes for parents</label><textarea id="notes" name="notes" placeholder="For example: lunches arrive at 11:45. Pizza days are Fridays.">{{ period.notes }}</textarea></div>
+  <div class="field"><label for="status">Status</label>
+    <select id="status" name="status">
+      {% for (code, label) in [("draft", "Draft: parents do not see it"), ("open", "Open: parents can order until the deadline"), ("closed", "Closed: no more orders")] %}
+      <option value="{{ code }}" {% if self.is_status(code) %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if layout.can_edit %}<button>Save period</button>{% endif %}
+</form>
+{% endblock %}

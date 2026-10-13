@@ -13,8 +13,9 @@
     <form method="post" action="/logout" class="inline"><button class="secondary small">Sign out</button></form>
   </div>
 </div>
-{% if memberships.is_empty() %}
+{% if memberships.is_empty() && families.is_empty() %}
 <p>You do not belong to a PAC yet. Ask a treasurer to invite you, or request an account for your PAC.</p>
+{% else if memberships.is_empty() %}
 {% else %}
 <table>
   <tbody>
@@ -29,6 +30,20 @@
         {% else if m.pac.status == "suspended" %}<span class="tag bad">suspended</span>
         {% else %}<span class="tag muted">not approved</span>{% endif %}
       </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if !families.is_empty() %}
+<h2 style="margin-top: 22px;">Hot lunch</h2>
+<table>
+  <tbody>
+  {% for p in families %}
+    <tr>
+      <td><strong>{{ p.school }}</strong><br><span class="small muted">{{ p.name }}</span></td>
+      <td>Parent</td>
+      <td class="num"><form method="post" action="/pacs/{{ p.id }}/family" class="inline"><button class="small">Open</button></form></td>
     </tr>
   {% endfor %}
   </tbody>

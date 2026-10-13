@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/lunch">Hot lunch</a> › <a href="/lunch/periods/{{ period.id }}">{{ period.name }}</a> ›</p>
+    <h1>Order {{ order.reference() }}</h1>
+    <p class="sub">{{ parent }} · {{ order.method_label() }} · {{ order.status_label() }}</p>
+  </div>
+  {% if layout.can_edit %}
+  <div class="actions">
+    {% if order.status == "pending" && order.method != "card" %}
+    <form method="post" action="/lunch/orders/{{ order.id }}/paid" class="inline"><button>Mark paid</button></form>
+    {% endif %}
+    {% if order.status == "pending" %}
+    <form method="post" action="/lunch/orders/{{ order.id }}/cancel" class="inline" data-confirm="Cancel order {{ order.reference() }}?"><button class="danger small">Cancel order</button></form>
+    {% endif %}
+    {% if order.status == "paid" %}
+    <form method="post" action="/lunch/orders/{{ order.id }}/refund" class="inline" data-confirm="{% if order.method == "card" %}Refund {{ order.total() }} to the parent's card? The card fees are not returned.{% else %}Mark this order refunded? Pay the money back to the parent yourself.{% endif %}"><button class="danger small">Refund</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Day</th><th>Child</th><th>Division</th><th>Item</th><th class="num">Price</th></tr></thead>
+    <tbody>
+    {% for l in lines %}
+      <tr><td class="nowrap">{{ l.day_label() }}</td><td>{{ l.child_name }}</td><td>{{ l.division() }}</td><td>{{ l.item_name }}{% if l.quantity > 1 %} × {{ l.quantity }}{% endif %}</td><td class="num">{{ l.amount() }}</td></tr>
+    {% endfor %}
+      <tr class="total"><td colspan="4">Total</td><td class="num">{{ order.total() }}</td></tr>
+      {% if order.fee_cents > 0 %}
+      <tr><td colspan="4" class="muted">Card fee (PAC Keeper's Stripe)</td><td class="num">{{ order.fee() }}</td></tr>
+      <tr><td colspan="4">To the PAC</td><td class="num">{{ order.net() }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+<dl class="facts panel">
+  <dt>Ordered</dt><dd>{{ order.created_at }}</dd>
+  {% if let Some(p) = order.paid_at %}<dt>Paid</dt><dd>{{ p }}</dd>{% endif %}
+  {% if let Some(pi) = order.stripe_payment_intent %}<dt>Stripe payment</dt><dd><code>{{ pi }}</code></dd>{% endif %}
+</dl>
+{% endblock %}

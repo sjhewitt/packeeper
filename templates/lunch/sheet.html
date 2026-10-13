@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Hot lunch {{ day.label() }} · {{ pac_name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="sheet">
+  <main>
+    <p class="muted small no-print"><a href="/lunch/periods/{{ period.id }}">Back to {{ period.name }}</a> · Print this page from your browser.</p>
+    <h1>Hot lunch: {{ day.date.format("%A, %B %-d, %Y") }}</h1>
+    <p class="sub">{{ pac_name }} · {{ period.name }} · {{ count.total() }} lunch(es)</p>
+    <table style="max-width: 520px; margin-bottom: 22px;">
+      <thead><tr><th>Item</th><th class="num">How many</th></tr></thead>
+      <tbody>
+      {% for (name, n) in count.items %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    {% for (division, items, rows) in groups %}
+    <section class="sheet-division">
+      <h2>{{ division }}</h2>
+      <p class="small muted">{% for (name, n) in items %}{{ name }} × {{ n }}{% if !loop.last %} · {% endif %}{% endfor %}</p>
+      <table>
+        <thead><tr><th style="width: 32px;"></th><th>Child</th><th>Item</th><th class="num">How many</th></tr></thead>
+        <tbody>
+        {% for l in rows %}<tr><td>☐</td><td>{{ l.child_name }}</td><td>{{ l.item_name }}</td><td class="num">{{ l.quantity }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endfor %}
+    {% if groups.is_empty() %}<p class="muted">No lunches ordered for this day.</p>{% endif %}
+  </main>
+</body>
+</html>

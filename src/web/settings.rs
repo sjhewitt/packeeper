@@ -20,6 +20,9 @@ struct SettingsPage {
     auth: bool,
     hosted: bool,
     months: Vec<(u32, &'static str)>,
+    /// The server runs hot lunch, and whether this PAC has it on.
+    lunch_available: bool,
+    lunch_on: bool,
 }
 
 const MONTHS: [&str; 12] = [
@@ -45,6 +48,8 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
         auth: state.auth,
         hosted: state.hosted.is_some(),
         months: MONTHS.iter().enumerate().map(|(i, m)| (i as u32 + 1, *m)).collect(),
+        lunch_available: state.lunch.is_some(),
+        lunch_on: state.lunch.is_some() && crate::lunch::enabled(&state.pool).await?,
     })
 }
 

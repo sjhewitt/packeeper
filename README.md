@@ -191,6 +191,41 @@ With Docker: `docker run -d -p 127.0.0.1:8080:8080 -v pac-hosted:/data -e PAC_HO
 - publish a privacy policy and terms of service
 - get advice on your obligations under BC's privacy law (PIPA)
 
+## Hot lunch (preview)
+
+Hot lunch ordering runs on a hosted server, behind a flag that is off by default. Start the server with `--hot-lunch` (or `PAC_HOT_LUNCH=1`). Each PAC's treasurer then turns it on under **Settings → Hot lunch**.
+
+- **The PAC** sets a menu and its divisions (classes), adds ordering periods with lunch days, and shares a sign-up link with families. **Hot lunch** shows what to buy each day and for which division, prints a delivery sheet for each day, and lists every order. The treasurer marks e-transfer and cash orders paid, and cancels or refunds orders.
+- **Parents** sign up with the PAC's link, add their children with their divisions, and order a lunch for each child on each day of a period, until the period's deadline. A parent's account opens only the hot lunch pages (`/family`), never the PAC's books. Parents are linked to a PAC in `control.db` (`families`), not as members.
+- **Payment** is by card, Interac e-Transfer, or cash. Each PAC chooses its ways to pay. Prices come from each day's menu, so an order keeps the prices that the parent saw.
+- **The books:** the money reaches the bank as Stripe payouts or e-transfers. Import the bank file as usual, and give those deposits the hot lunch line item and fundraiser.
+
+### Card payments (Stripe Connect)
+
+Card details go to Stripe Checkout, never to PAC Keeper. A PAC takes cards in one of two ways:
+
+- **Its own Stripe account** (Connect Standard). The treasurer connects it under **Hot lunch → Payments and families**. Payments go to that account, and Stripe charges its fees there. PAC Keeper can add a fee of its own with `PAC_STANDARD_FEE_BP` and `PAC_STANDARD_FEE_CENTS` (none by default).
+- **Through PAC Keeper** (Connect Express). PAC Keeper opens a Stripe account for the PAC. Stripe checks the PAC's details and pays its bank. The PAC is the merchant on the card statement. Each payment carries an application fee that covers what the platform pays Stripe, and the surcharge. The PAC pays the fee from the lunch money; parents pay only the menu prices, so no card-surcharge rules apply.
+
+The application fee on an Express payment, with each part rounded up to a cent:
+
+| Part | Default | Setting |
+|---|---|---|
+| Card fee | 2.9% + C$0.30 | `PAC_STRIPE_CARD_BP`, `PAC_STRIPE_CARD_CENTS` |
+| Payout fee | 0.25% | `PAC_STRIPE_PAYOUT_BP` |
+| Account fee, on the first card payment each month | C$2.00 | `PAC_STRIPE_MONTHLY_CENTS` |
+| Your surcharge | none | `PAC_SURCHARGE_BP`, `PAC_SURCHARGE_CENTS` |
+
+Rates are in basis points: 290 is 2.9%. Check them against Stripe's current prices for Canada. International cards cost more, so a small surcharge leaves room for them. On Express payments the platform account answers for disputes first; a refund from PAC Keeper takes the money back from the PAC's account, and the fees are not returned.
+
+To turn card payments on, set these for the hosted server:
+
+- `PAC_STRIPE_SECRET_KEY`: the platform account's secret key. Turn on Connect in that account.
+- `PAC_STRIPE_WEBHOOK_SECRETS`: in Stripe, add two webhook endpoints for `https://app.packeeper.ca/stripe/webhook`, one for **events on your account** and one for **events on connected accounts**. Send `checkout.session.completed` and `checkout.session.async_payment_succeeded` to each. Put both signing secrets here, separated by a comma.
+- `PAC_STRIPE_CLIENT_ID`: the Connect client id (`ca_...`), so that PACs can connect their own accounts. In Stripe's Connect settings, add the redirect address `https://app.packeeper.ca/lunch/setup/standard/return`. Without it, PACs can use only Express.
+
+Without `PAC_STRIPE_SECRET_KEY`, hot lunch works with e-transfer and cash only.
+
 ## The public demo
 
 `serve --demo` runs a public demo for the website:

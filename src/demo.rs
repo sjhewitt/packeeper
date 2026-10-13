@@ -904,6 +904,14 @@ pub async fn reset(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Res
     }
     // Children first, for the foreign keys.
     for table in [
+        "lunch_order_lines",
+        "lunch_orders",
+        "lunch_children",
+        "lunch_day_items",
+        "lunch_days",
+        "lunch_periods",
+        "lunch_items",
+        "lunch_divisions",
         "allocations",
         "attachments",
         "rules",

@@ -1,0 +1,22 @@
+{% extends "hosted/public.html" %}
+{% block title %}Hot lunch at {{ pac.school }}{% endblock %}
+{% block content %}
+<h1>Hot lunch at {{ pac.school }}</h1>
+<p class="sub">{{ pac.name }} takes hot lunch orders online. Sign up once, add your children, and order for each period.</p>
+{% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+{% if let Some(p) = person %}
+<form method="post" action="/join/{{ code }}">
+  <p>You are signed in as {{ p.name }} ({{ p.email }}).</p>
+  <button>Add hot lunch for {{ pac.school }}</button>
+</form>
+{% else %}
+<form method="post" action="/join/{{ code }}">
+  <div class="field"><label for="name">Your name</label><input type="text" id="name" name="name" value="{{ name }}" autocomplete="name" required></div>
+  <div class="field"><label for="email">Email</label><input type="text" id="email" name="email" value="{{ email }}" autocomplete="email" required></div>
+  <div class="field"><label for="password">Password</label><input type="password" id="password" name="password" autocomplete="new-password" required><div class="hint">At least 10 characters.</div></div>
+  <button>Sign up</button>
+</form>
+<p class="small" style="margin-top: 16px;">Already have an account? <a href="/login">Sign in</a>, then open this link again.</p>
+{% endif %}
+<p class="small muted" style="margin-top: 16px;">Your account opens only the hot lunch pages. It does not open the PAC's books.</p>
+{% endblock %}

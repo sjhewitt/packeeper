@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/lunch">Hot lunch</a> ›</p>
+    <h1>Payments and families</h1>
+    <p class="sub">How parents pay, and who can order.</p>
+  </div>
+</div>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Card payments</h2>
+    {% if !cards_available %}
+      <p class="muted">Card payments are not set up on this server. Parents can pay by e-transfer or cash.</p>
+    {% else if let Some(s) = stripe %}
+      <dl class="facts">
+        <dt>Account</dt><dd><code>{{ s.account_id }}</code></dd>
+        <dt>Kind</dt><dd>{% if s.kind == "standard" %}The PAC's own Stripe account{% else %}Through PAC Keeper (Stripe Express){% endif %}</dd>
+        <dt>Cards</dt><dd>{% if s.charges_enabled %}<span class="tag good">on</span>{% else %}<span class="tag warn">set-up not finished</span>{% endif %}</dd>
+        <dt>Fees</dt><dd>{% if s.kind == "standard" %}Stripe charges its fees in your Stripe account.{% if let Some(t) = standard_terms %} PAC Keeper adds {{ t }}.{% endif %}{% else %}{{ express_terms }}, taken from each payment. This covers Stripe's fees.{% endif %}</dd>
+      </dl>
+      {% if layout.can_edit %}
+      <div class="cta" style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+        {% if s.kind == "express" && !s.charges_enabled %}
+        <form method="post" action="/lunch/setup/express"><button>Continue the set-up on Stripe</button></form>
+        {% endif %}
+        <form method="post" action="/lunch/setup/stripe/remove" data-confirm="Stop card payments for this PAC? Paid orders stay paid. The Stripe account itself stays."><button class="danger small">Stop card payments</button></form>
+      </div>
+      {% endif %}
+    {% else %}
+      <p>Choose one way to take cards. Card details go to Stripe's secure page, never to PAC Keeper.</p>
+      {% if can_connect_own %}
+      <h3>Use your PAC's own Stripe account</h3>
+      <p class="small">For a PAC that has a Stripe account. Payments go to it, and Stripe charges its fees there. {% if let Some(t) = standard_terms %}PAC Keeper adds {{ t }}.{% else %}PAC Keeper takes no fee.{% endif %}</p>
+      {% if layout.can_edit %}<form method="post" action="/lunch/setup/standard"><button class="secondary">Connect your Stripe account</button></form>{% endif %}
+      {% endif %}
+      <h3>Take cards through PAC Keeper</h3>
+      <p class="small">For a PAC without Stripe. PAC Keeper opens a Stripe account for the PAC. Stripe asks for details about the PAC, its signing officers, and its bank account, and pays the money to that bank. The fee is {{ express_terms }}, taken from each payment.</p>
+      {% if layout.can_edit %}<form method="post" action="/lunch/setup/express"><button>Set up card payments</button></form>{% endif %}
+    {% endif %}
+  </div>
+
+  <form class="panel" method="post" action="/lunch/setup/offline">
+    <h2>Other ways to pay</h2>
+    <p class="small muted">The treasurer marks these orders paid when the money arrives. They count toward the lunches to buy while they wait.</p>
+    <div class="field"><label for="etransfer_email">Interac e-Transfer address</label><input type="text" id="etransfer_email" name="etransfer_email" value="{{ offline.etransfer_email }}" placeholder="treasurer@yourpac.ca"><div class="hint">Leave it blank to turn e-transfer off.</div></div>
+    <div class="field"><label for="etransfer_note">Instructions for parents</label><textarea id="etransfer_note" name="etransfer_note" placeholder="Auto-deposit is on, so there is no security question.">{{ offline.etransfer_note }}</textarea></div>
+    <div class="field"><label class="check"><input type="checkbox" name="cash" {% if offline.cash %}checked{% endif %}> Take cash to the school office</label></div>
+    {% if layout.can_edit %}<button>Save</button>{% endif %}
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Families</h2>
+  <p>Share this link with families, for example in the school newsletter. Parents sign up with it and can then order. They see only the hot lunch pages.</p>
+  <p><code>{{ join_url }}</code></p>
+  {% if layout.can_edit %}
+  <form method="post" action="/lunch/setup/code" data-confirm="Make a new link? The old link stops working. Parents who signed up keep their accounts."><button class="secondary small">Make a new link</button></form>
+  {% endif %}
+  <table style="margin-top: 14px;">
+    <thead><tr><th>Parent</th><th>Email</th><th></th></tr></thead>
+    <tbody>
+    {% for p in families %}
+      <tr>
+        <td>{{ p.name }}</td><td>{{ p.email }}</td>
+        <td class="num">{% if layout.can_edit %}<form method="post" action="/lunch/families/{{ p.id }}/remove" class="inline" data-confirm="Remove {{ p.name }}? They can no longer order. Their past orders stay."><button class="danger small">Remove</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if families.is_empty() %}<tr><td colspan="3" class="muted">No families yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

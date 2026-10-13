@@ -58,6 +58,17 @@
       {% endif %}
       <p class="small muted">Keep gaming grant records for at least 5 years after the year the money was spent.</p>
     </div>
+    {% if lunch_available %}
+    <div class="panel">
+      <h2>Hot lunch <span class="tag warn">preview</span></h2>
+      {% if lunch_on %}
+      <p class="small">Hot lunch is on. <a href="/lunch">Open hot lunch</a></p>
+      {% else %}
+      <p class="small">Parents order and pay for hot lunch online, and you see what to buy each day.</p>
+      {% if layout.can_edit %}<form method="post" action="/lunch/enable"><input type="hidden" name="on" value="1"><button class="secondary">Turn hot lunch on</button></form>{% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
     <div class="panel">
       <h2>Sign-in</h2>
       {% if hosted %}

@@ -5,9 +5,13 @@ mod auth;
 mod budget;
 mod dashboard;
 mod events;
+mod family;
 mod fundraisers;
 mod hosted;
 mod import;
+mod lunch;
+#[cfg(test)]
+mod lunch_tests;
 mod reports;
 mod settings;
 mod transactions;
@@ -50,6 +54,8 @@ pub struct AppState {
     pub loopback_only: bool,
     /// In the desktop app: the secret that the app window holds.
     pub desktop_secret: Option<String>,
+    /// Hot lunch ordering, when the hosted server runs with --hot-lunch.
+    pub lunch: Option<Arc<crate::lunch::Lunch>>,
     pub key: Key,
 }
 
@@ -79,6 +85,8 @@ pub struct Ctx {
     /// Inside the desktop app: files open in the computer's own apps.
     pub desktop: bool,
     pub hosted: Option<HostedCtx>,
+    /// Hot lunch, on a hosted server with --hot-lunch. Each PAC also turns it on.
+    pub lunch: Option<Arc<crate::lunch::Lunch>>,
 }
 
 /// On a hosted server: the PAC and the person of this request.
@@ -100,6 +108,7 @@ impl Ctx {
             auth: app.auth || hosted.is_some(),
             demo: app.demo,
             desktop: app.desktop_secret.is_some(),
+            lunch: app.lunch.clone().filter(|_| hosted.is_some()),
             hosted,
         }
     }
@@ -155,6 +164,44 @@ pub fn router(state: AppState) -> Router {
         .route("/fundraisers/{id}/goal", post(fundraisers::set_goal))
         .route("/fundraisers/{id}/delete", post(fundraisers::delete))
         .route("/reports/fundraiser.pdf", get(reports::fundraiser_pdf))
+        // Hot lunch (hosted, --hot-lunch): the PAC's pages, then the parents' pages.
+        .route("/lunch", get(lunch::home))
+        .route("/lunch/enable", post(lunch::enable))
+        .route("/lunch/menu", get(lunch::menu))
+        .route("/lunch/items", post(lunch::create_item))
+        .route("/lunch/items/{id}", post(lunch::update_item))
+        .route("/lunch/divisions", post(lunch::create_division))
+        .route("/lunch/divisions/{id}", post(lunch::update_division))
+        .route("/lunch/periods", post(lunch::create_period))
+        .route("/lunch/periods/{id}", get(lunch::period).post(lunch::update_period))
+        .route("/lunch/periods/{id}/days", post(lunch::add_days))
+        .route("/lunch/days/{id}", post(lunch::set_day))
+        .route("/lunch/days/{id}/delete", post(lunch::delete_day))
+        .route("/lunch/days/{id}/sheet", get(lunch::sheet))
+        .route("/lunch/orders/{id}", get(lunch::order))
+        .route("/lunch/orders/{id}/paid", post(lunch::mark_paid))
+        .route("/lunch/orders/{id}/cancel", post(lunch::cancel))
+        .route("/lunch/orders/{id}/refund", post(lunch::refund))
+        .route("/lunch/setup", get(lunch::setup))
+        .route("/lunch/setup/offline", post(lunch::save_offline))
+        .route("/lunch/setup/express", post(lunch::express))
+        .route("/lunch/setup/express/return", get(lunch::express_return))
+        .route("/lunch/setup/express/refresh", get(lunch::express_refresh))
+        .route("/lunch/setup/standard", post(lunch::standard))
+        .route("/lunch/setup/standard/return", get(lunch::standard_return))
+        .route("/lunch/setup/stripe/remove", post(lunch::remove_stripe))
+        .route("/lunch/setup/code", post(lunch::new_code))
+        .route("/lunch/families/{person}/remove", post(lunch::remove_family))
+        .route("/stripe/webhook", post(lunch::stripe_webhook))
+        .route("/join/{code}", get(family::join_page).post(family::join))
+        .route("/pacs/{id}/family", post(family::open))
+        .route("/family", get(family::home))
+        .route("/family/children", post(family::add_child))
+        .route("/family/children/{id}", post(family::update_child))
+        .route("/family/periods/{id}", get(family::order_page).post(family::place_order))
+        .route("/family/orders/{id}", get(family::order))
+        .route("/family/orders/{id}/pay", post(family::pay_again))
+        .route("/family/orders/{id}/cancel", post(family::cancel))
         .route("/settings", get(settings::page).post(settings::save))
         .route("/settings/backup.zip", get(settings::backup))
         .route("/accounts", get(accounts::list).post(accounts::create))
@@ -229,6 +276,8 @@ pub struct Layout {
     /// Inside the desktop app. Links to files then open in the same window,
     /// where the app hands them to the computer's own viewer.
     pub desktop: bool,
+    /// Hot lunch is on for this PAC: the nav shows it.
+    pub lunch: bool,
 }
 
 /// The product name and version, shown in the page footer.
@@ -289,6 +338,7 @@ impl Layout {
             demo: state.demo,
             hosted: state.hosted.as_ref().map(|h| (h.pac_count, h.person.is_operator)),
             desktop: state.desktop,
+            lunch: state.lunch.is_some() && crate::lunch::enabled(&state.pool).await?,
         })
     }
 }

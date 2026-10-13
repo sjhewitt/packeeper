@@ -1,0 +1,51 @@
+{% extends "family/base.html" %}
+{% block title %}Order for {{ period.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/family">Hot lunch</a> ›</p>
+    <h1>Order for {{ period.name }}</h1>
+    <p class="sub">Order by {{ period.order_deadline.format("%A, %B %-d, %Y") }}. Choose a lunch for each child on each day, or leave the day out.</p>
+  </div>
+</div>
+{% if let Some(e) = error %}<div class="flash err">{{ e }}</div>{% endif %}
+{% if !period.notes.is_empty() %}<div class="panel small">{{ period.notes }}</div>{% endif %}
+
+{% if children.is_empty() %}
+<div class="panel"><p>Add your children on the <a href="/family">hot lunch page</a> first.</p></div>
+{% else %}
+<form method="post" action="/family/periods/{{ period.id }}">
+  <div class="panel" style="padding: 0; overflow-x: auto;">
+    <table class="order-grid">
+      <thead><tr><th>Day</th>{% for c in children %}<th>{{ c.name }}<br><span class="small muted">{{ c.division() }}</span></th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for (d, menu) in days %}
+        <tr>
+          <td class="nowrap">{{ d.label() }}</td>
+          {% for c in children %}
+          <td>
+            <select name="{{ self.field(c.id, d.id) }}" aria-label="Lunch for {{ c.name }} on {{ d.label() }}">
+              <option value="">No lunch</option>
+              {% for m in menu %}<option value="{{ m.item_id }}" {% if self.is_picked(c.id, d.id, m.item_id) %}selected{% endif %}>{{ m.name }} – {{ m.price() }}</option>{% endfor %}
+            </select>
+          </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+      {% if days.is_empty() %}<tr><td colspan="9" class="muted" style="padding: 18px;">This period has no lunch days yet.</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>How to pay</h2>
+    {% if cards %}<label class="check"><input type="radio" name="method" value="card" checked> Card, on Stripe's secure page. Card orders start at {{ smallest_card }}.</label>{% endif %}
+    {% if offline.etransfer() %}<label class="check"><input type="radio" name="method" value="etransfer" {% if !cards %}checked{% endif %}> Interac e-Transfer to {{ offline.etransfer_email }}</label>{% endif %}
+    {% if offline.cash %}<label class="check"><input type="radio" name="method" value="cash" {% if !cards && !offline.etransfer() %}checked{% endif %}> Cash to the school office</label>{% endif %}
+    {% if !cards && !offline.etransfer() && !offline.cash %}<p class="muted">The PAC has not set up a way to pay yet.</p>{% endif %}
+    <p class="small muted">The next page shows the total{% if cards %}, or takes you to the card payment{% endif %}.</p>
+    <button>Place order</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

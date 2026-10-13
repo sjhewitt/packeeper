@@ -1,0 +1,74 @@
+{% extends "family/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Hot lunch at {{ f.pac.school }}</h1>
+    <p class="sub">Ordered and paid through {{ f.pac.name }}.</p>
+  </div>
+</div>
+{% if let Some(m) = flash.msg %}{% if !m.is_empty() %}<div class="flash ok">{{ m }}</div>{% endif %}{% endif %}
+{% if let Some(m) = flash.err %}{% if !m.is_empty() %}<div class="flash err">{{ m }}</div>{% endif %}{% endif %}
+
+<div class="panel">
+  <h2>Order lunches</h2>
+  {% if children.is_empty() %}
+    <p>Add your children below first.</p>
+  {% else if periods.is_empty() %}
+    <p class="muted">No ordering period is open right now. The PAC tells families when the next one opens.</p>
+  {% else %}
+    {% for p in periods %}
+    <p><a class="button" href="/family/periods/{{ p.id }}">Order for {{ p.name }}</a> <span class="small muted">Order by {{ p.order_deadline.format("%A, %B %-d") }}.</span></p>
+    {% endfor %}
+  {% endif %}
+</div>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Your children</h2>
+    {% for c in children %}
+    <form class="row-form" method="post" action="/family/children/{{ c.id }}">
+      <input type="text" name="name" value="{{ c.name }}" aria-label="Name" required>
+      <select name="division_id" aria-label="Division">
+        {% for d in divisions %}<option value="{{ d.id }}" {% if c.in_division(d.id) %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="notes" value="{{ c.notes }}" placeholder="Allergies or notes" aria-label="Allergies or notes">
+      <label class="check"><input type="checkbox" name="active" {% if c.active %}checked{% endif %}> Orders lunch</label>
+      <button class="secondary small">Save</button>
+    </form>
+    {% endfor %}
+    <form method="post" action="/family/children" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;">
+      <h3>Add a child</h3>
+      <div class="fields">
+        <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" required></div>
+        <div class="field"><label for="division_id">Division</label>
+          <select id="division_id" name="division_id" required>
+            <option value="">— choose —</option>
+            {% for d in divisions %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field"><label for="notes">Allergies or notes</label><input type="text" id="notes" name="notes" placeholder="For example: no nuts"></div>
+      <input type="hidden" name="active" value="1">
+      <button>Add child</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Your orders</h2>
+    <table>
+      <thead><tr><th>Order</th><th>Period</th><th>Status</th><th class="num">Total</th></tr></thead>
+      <tbody>
+      {% for (o, period) in orders %}
+        <tr>
+          <td><a href="/family/orders/{{ o.id }}">{{ o.reference() }}</a></td>
+          <td>{{ period }}</td>
+          <td>{% if o.status == "paid" %}<span class="tag good">paid</span>{% else if o.status == "pending" %}<span class="tag warn">{{ o.status_label() }}</span>{% else %}<span class="tag muted">{{ o.status_label() }}</span>{% endif %}</td>
+          <td class="num">{{ o.total() }}</td>
+        </tr>
+      {% endfor %}
+      {% if orders.is_empty() %}<tr><td colspan="4" class="muted">No orders yet.</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

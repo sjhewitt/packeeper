@@ -21,7 +21,7 @@ use crate::hosted::{Hosted, Membership, Pac, Person, looks_like_email};
 use crate::models::User;
 
 pub const COOKIE: &str = "pk_session";
-const MIN_PASSWORD: usize = 10;
+pub(super) const MIN_PASSWORD: usize = 10;
 
 /// The session cookie: person, chosen PAC (0 for none), and session version.
 struct Session {
@@ -39,7 +39,12 @@ fn read_session(jar: &PrivateCookieJar) -> Option<Session> {
     Some(Session { person_id, pac_id: (pac_id > 0).then_some(pac_id), version })
 }
 
-fn with_session(jar: PrivateCookieJar, hosted: &Hosted, person: &Person, pac_id: Option<i64>) -> PrivateCookieJar {
+pub(super) fn with_session(
+    jar: PrivateCookieJar,
+    hosted: &Hosted,
+    person: &Person,
+    pac_id: Option<i64>,
+) -> PrivateCookieJar {
     let cookie = Cookie::build((COOKIE, format!("{}:{}:{}", person.id, pac_id.unwrap_or(0), person.session_version)))
         .path("/")
         .http_only(true)
@@ -65,8 +70,13 @@ impl<S: Send + Sync> FromRequestParts<S> for SignedIn {
 }
 
 fn is_public(path: &str) -> bool {
-    matches!(path, "/login" | "/signup" | "/forgot" | "/verify/resend")
-        || ["/verify/", "/reset/", "/invite/", "/static/"].iter().any(|p| path.starts_with(p))
+    matches!(path, "/login" | "/signup" | "/forgot" | "/verify/resend" | "/stripe/webhook")
+        || ["/verify/", "/reset/", "/invite/", "/static/", "/join/"].iter().any(|p| path.starts_with(p))
+}
+
+/// Hot lunch pages for parents. A family link opens these and nothing else.
+fn is_family_page(path: &str) -> bool {
+    path == "/family" || path.starts_with("/family/")
 }
 
 fn is_account_page(path: &str) -> bool {
@@ -112,9 +122,18 @@ pub async fn guard(
     let Some(pac_id) = session.and_then(|s| s.pac_id) else {
         return Redirect::to("/pacs").into_response();
     };
+    if is_family_page(&path) {
+        return family_guard(&app, hosted, person, pac_id, req, next).await;
+    }
     let membership = match hosted.membership(person.id, pac_id).await {
         Ok(Some(m)) if m.pac.is_active() => m,
-        Ok(_) => return Redirect::to("/pacs").into_response(),
+        Ok(_) => {
+            // A parent who does not keep the books goes to the hot lunch pages.
+            return match hosted.family_pac(person.id, pac_id).await {
+                Ok(Some(_)) if app.lunch.is_some() => Redirect::to("/family").into_response(),
+                _ => Redirect::to("/pacs").into_response(),
+            };
+        }
         Err(e) => return AppError::from(e).into_response(),
     };
     let pool = match hosted.pac_pool(&membership.pac).await {
@@ -141,14 +160,47 @@ pub async fn guard(
     next.run(req).await
 }
 
-fn hosted_or_404(app: &AppState) -> AppResult<Arc<Hosted>> {
+/// Lets a parent into the hot lunch pages of the session's PAC: the server
+/// runs hot lunch, the person is a parent there, the PAC is active, and the
+/// PAC has hot lunch on. The pages get a `FamilyCtx`, never a `Ctx`, so no
+/// page of the books can serve them.
+async fn family_guard(
+    app: &AppState,
+    hosted: Arc<Hosted>,
+    person: Person,
+    pac_id: i64,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    let Some(lunch) = app.lunch.clone() else {
+        return AppError::NotFound.into_response();
+    };
+    let pac = match hosted.family_pac(person.id, pac_id).await {
+        Ok(Some(pac)) if pac.is_active() => pac,
+        Ok(_) => return Redirect::to("/pacs").into_response(),
+        Err(e) => return AppError::from(e).into_response(),
+    };
+    let pool = match hosted.pac_pool(&pac).await {
+        Ok(pool) => pool,
+        Err(e) => return AppError::from(e).into_response(),
+    };
+    match crate::lunch::enabled(&pool).await {
+        Ok(true) => {}
+        Ok(false) => return AppError::NotFound.into_response(),
+        Err(e) => return AppError::from(e).into_response(),
+    }
+    req.extensions_mut().insert(super::family::FamilyCtx { hosted, lunch, pac, person, pool });
+    next.run(req).await
+}
+
+pub(super) fn hosted_or_404(app: &AppState) -> AppResult<Arc<Hosted>> {
     app.hosted.clone().ok_or(AppError::NotFound)
 }
 
 /// The visitor's address, for rate limits. The reverse proxy adds the address
 /// it saw to the end of X-Forwarded-For; earlier entries come from the visitor
 /// and can be made up.
-fn client_ip(headers: &HeaderMap) -> String {
+pub(super) fn client_ip(headers: &HeaderMap) -> String {
     headers
         .get_all("x-forwarded-for")
         .iter()
@@ -166,7 +218,7 @@ async fn operator_emails(hosted: &Hosted) -> anyhow::Result<Vec<String>> {
 
 /// Sends one email. A failure does not undo the action that asked for the
 /// email: it goes to the log, and the caller tells the person what happened.
-async fn send_mail(hosted: &Hosted, to: &str, subject: &str, body: &str) -> bool {
+pub(super) async fn send_mail(hosted: &Hosted, to: &str, subject: &str, body: &str) -> bool {
     match hosted.mailer.send(to, subject, body).await {
         Ok(()) => true,
         Err(e) => {
@@ -199,7 +251,7 @@ struct Notice {
     link: Option<(String, String)>,
 }
 
-fn notice(title: &str, message: &str, link: Option<(&str, &str)>) -> AppResult<Response> {
+pub(super) fn notice(title: &str, message: &str, link: Option<(&str, &str)>) -> AppResult<Response> {
     render(Notice {
         title: title.into(),
         message: message.into(),
@@ -220,7 +272,7 @@ pub async fn login_page(_app: &AppState, _jar: PrivateCookieJar, error: Option<S
 }
 
 pub async fn login(
-    _app: &AppState,
+    app: &AppState,
     hosted: &Hosted,
     jar: PrivateCookieJar,
     headers: &HeaderMap,
@@ -258,6 +310,14 @@ pub async fn login(
     if active.len() == 1 {
         let jar = with_session(jar, hosted, &person, Some(active[0].pac.id));
         return Ok((jar, Redirect::to("/")).into_response());
+    }
+    // A parent of one PAC, and no books to keep: straight to hot lunch.
+    if active.is_empty() && app.lunch.is_some() {
+        let families: Vec<Pac> = hosted.family_pacs(person.id).await?.into_iter().filter(|p| p.is_active()).collect();
+        if families.len() == 1 {
+            let jar = with_session(jar, hosted, &person, Some(families[0].id));
+            return Ok((jar, Redirect::to("/family")).into_response());
+        }
     }
     Ok((with_session(jar, hosted, &person, None), Redirect::to("/pacs")).into_response())
 }
@@ -353,7 +413,12 @@ pub async fn signup(
 }
 
 /// Sends a new confirmation link. `false` means the email could not be sent.
-async fn send_verification(hosted: &Hosted, email: &str, name: &str, person_id: i64) -> anyhow::Result<bool> {
+pub(super) async fn send_verification(
+    hosted: &Hosted,
+    email: &str,
+    name: &str,
+    person_id: i64,
+) -> anyhow::Result<bool> {
     let token = hosted.create_token("verify", person_id, None, None, chrono::Duration::hours(48)).await?;
     Ok(send_mail(
         hosted,
@@ -521,11 +586,18 @@ pub async fn reset(
 struct PacsPage {
     person: Person,
     memberships: Vec<Membership>,
+    /// PACs where the person orders hot lunch (when the server runs it).
+    families: Vec<Pac>,
 }
 
 pub async fn pacs_page(State(app): State<AppState>, SignedIn(person): SignedIn) -> AppResult<Response> {
     let hosted = hosted_or_404(&app)?;
-    render(PacsPage { memberships: hosted.memberships(person.id).await?, person })
+    let families = if app.lunch.is_some() {
+        hosted.family_pacs(person.id).await?.into_iter().filter(|p| p.is_active()).collect()
+    } else {
+        Vec::new()
+    };
+    render(PacsPage { memberships: hosted.memberships(person.id).await?, families, person })
 }
 
 pub async fn open_pac(
@@ -1106,6 +1178,7 @@ mod tests {
             demo: None,
             loopback_only: false,
             desktop_secret: None,
+            lunch: None,
             key: axum_extra::extract::cookie::Key::generate(),
         });
         let post = |path: &'static str, form: &'static str| {

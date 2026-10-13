@@ -1,0 +1,46 @@
+{% extends "family/base.html" %}
+{% block title %}Order {{ order.reference() }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/family">Hot lunch</a> ›</p>
+    <h1>Order {{ order.reference() }}</h1>
+    <p class="sub">{{ period.name }} · {{ order.status_label() }}</p>
+  </div>
+</div>
+{% if let Some(m) = flash.msg %}{% if !m.is_empty() %}<div class="flash ok">{{ m }}</div>{% endif %}{% endif %}
+{% if let Some(m) = flash.err %}{% if !m.is_empty() %}<div class="flash err">{{ m }}</div>{% endif %}{% endif %}
+
+<div class="panel">
+  {% if order.status == "paid" %}
+    <p><span class="tag good">paid</span> Thank you. We sent a receipt to {{ f.person.email }}.</p>
+  {% else if order.status == "pending" && order.method == "card" %}
+    <p>This order is not paid yet.</p>
+    {% if cards %}<form method="post" action="/family/orders/{{ order.id }}/pay" class="inline"><button>Pay {{ order.total() }} by card</button></form>{% endif %}
+  {% else if order.status == "pending" && order.method == "etransfer" %}
+    <p><strong>Send an Interac e-Transfer of {{ order.total() }} to {{ offline.etransfer_email }}.</strong> Write <strong>{{ order.reference() }}</strong> in the message, so the treasurer can match it.</p>
+    {% if !offline.etransfer_note.is_empty() %}<p class="small">{{ offline.etransfer_note }}</p>{% endif %}
+    <p class="small muted">The order shows as paid when the treasurer receives the money.</p>
+  {% else if order.status == "pending" %}
+    <p><strong>Bring {{ order.total() }} in cash to the school office</strong> in an envelope marked <strong>{{ order.reference() }}</strong> and your child's name.</p>
+    <p class="small muted">The order shows as paid when the treasurer receives the money.</p>
+  {% else %}
+    <p><span class="tag muted">{{ order.status_label() }}</span></p>
+  {% endif %}
+  {% if order.status == "pending" %}
+  <form method="post" action="/family/orders/{{ order.id }}/cancel" class="inline" data-confirm="Cancel order {{ order.reference() }}?"><button class="danger small">Cancel order</button></form>
+  {% endif %}
+</div>
+
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Day</th><th>Child</th><th>Lunch</th><th class="num">Price</th></tr></thead>
+    <tbody>
+    {% for l in lines %}
+      <tr><td class="nowrap">{{ l.day_label() }}</td><td>{{ l.child_name }}</td><td>{{ l.item_name }}{% if l.quantity > 1 %} × {{ l.quantity }}{% endif %}</td><td class="num">{{ l.amount() }}</td></tr>
+    {% endfor %}
+      <tr class="total"><td colspan="3">Total</td><td class="num">{{ order.total() }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -58,6 +58,32 @@ impl Pac {
     }
 }
 
+/// The Stripe account that takes a PAC's hot lunch payments.
+#[derive(Debug, Clone, FromRow)]
+pub struct PacStripe {
+    pub pac_id: i64,
+    pub account_id: String,
+    /// "standard" (the PAC's own account) or "express" (under the platform).
+    pub kind: String,
+    pub charges_enabled: bool,
+    pub updated_at: String,
+}
+
+impl PacStripe {
+    pub fn destination(&self) -> crate::lunch::stripe::Destination {
+        let account = self.account_id.clone();
+        if self.kind == "standard" {
+            crate::lunch::stripe::Destination::Standard { account }
+        } else {
+            crate::lunch::stripe::Destination::Express { account }
+        }
+    }
+
+    pub fn is_express(&self) -> bool {
+        self.kind == "express"
+    }
+}
+
 /// A PAC with the person's role in it.
 #[derive(Debug, Clone, FromRow)]
 pub struct Membership {
@@ -342,6 +368,136 @@ impl Hosted {
         }
         entry.1 += 1;
         entry.1 <= max
+    }
+
+    // ----- Hot lunch families and payments -----
+
+    /// The active PAC whose hot lunch the person orders from, if they are a parent there.
+    pub async fn family_pac(&self, person_id: i64, pac_id: i64) -> anyhow::Result<Option<Pac>> {
+        Ok(sqlx::query_as(
+            "SELECT p.* FROM families f JOIN pacs p ON p.id = f.pac_id WHERE f.person_id = ? AND f.pac_id = ?",
+        )
+        .bind(person_id)
+        .bind(pac_id)
+        .fetch_optional(&self.control)
+        .await?)
+    }
+
+    /// The PACs where the person orders hot lunch.
+    pub async fn family_pacs(&self, person_id: i64) -> anyhow::Result<Vec<Pac>> {
+        Ok(sqlx::query_as(
+            "SELECT p.* FROM families f JOIN pacs p ON p.id = f.pac_id WHERE f.person_id = ? ORDER BY p.name",
+        )
+        .bind(person_id)
+        .fetch_all(&self.control)
+        .await?)
+    }
+
+    pub async fn add_family(&self, person_id: i64, pac_id: i64) -> anyhow::Result<()> {
+        sqlx::query("INSERT OR IGNORE INTO families (pac_id, person_id, created_at) VALUES (?, ?, ?)")
+            .bind(pac_id)
+            .bind(person_id)
+            .bind(crate::db::now())
+            .execute(&self.control)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_family(&self, person_id: i64, pac_id: i64) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM families WHERE pac_id = ? AND person_id = ?")
+            .bind(pac_id)
+            .bind(person_id)
+            .execute(&self.control)
+            .await?;
+        Ok(())
+    }
+
+    /// The parents of a PAC, by name.
+    pub async fn families(&self, pac_id: i64) -> anyhow::Result<Vec<Person>> {
+        Ok(sqlx::query_as(
+            "SELECT p.* FROM families f JOIN people p ON p.id = f.person_id WHERE f.pac_id = ? ORDER BY p.name, p.email",
+        )
+        .bind(pac_id)
+        .fetch_all(&self.control)
+        .await?)
+    }
+
+    /// People by id, for lists of orders.
+    pub async fn people(&self, ids: &[i64]) -> anyhow::Result<HashMap<i64, Person>> {
+        let mut out = HashMap::new();
+        for id in ids {
+            if !out.contains_key(id)
+                && let Some(p) = self.person(*id).await?
+            {
+                out.insert(*id, p);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The PAC's sign-up code for families, made on first use.
+    pub async fn family_code(&self, pac_id: i64) -> anyhow::Result<String> {
+        let code: Option<String> = sqlx::query_scalar("SELECT code FROM family_codes WHERE pac_id = ?")
+            .bind(pac_id)
+            .fetch_optional(&self.control)
+            .await?;
+        match code {
+            Some(code) => Ok(code),
+            None => self.new_family_code(pac_id).await,
+        }
+    }
+
+    /// Replaces the PAC's sign-up code. The old link stops working.
+    pub async fn new_family_code(&self, pac_id: i64) -> anyhow::Result<String> {
+        let mut bytes = [0u8; 9];
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut bytes);
+        let code = hex::encode(bytes);
+        sqlx::query("INSERT OR REPLACE INTO family_codes (code, pac_id, created_at) VALUES (?, ?, ?)")
+            .bind(&code)
+            .bind(pac_id)
+            .bind(crate::db::now())
+            .execute(&self.control)
+            .await?;
+        Ok(code)
+    }
+
+    pub async fn pac_by_family_code(&self, code: &str) -> anyhow::Result<Option<Pac>> {
+        Ok(sqlx::query_as("SELECT p.* FROM family_codes c JOIN pacs p ON p.id = c.pac_id WHERE c.code = ?")
+            .bind(code)
+            .fetch_optional(&self.control)
+            .await?)
+    }
+
+    pub async fn pac_stripe(&self, pac_id: i64) -> anyhow::Result<Option<PacStripe>> {
+        Ok(sqlx::query_as("SELECT * FROM pac_stripe WHERE pac_id = ?")
+            .bind(pac_id)
+            .fetch_optional(&self.control)
+            .await?)
+    }
+
+    pub async fn set_pac_stripe(
+        &self,
+        pac_id: i64,
+        account_id: &str,
+        kind: &str,
+        charges_enabled: bool,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO pac_stripe (pac_id, account_id, kind, charges_enabled, updated_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(pac_id)
+        .bind(account_id)
+        .bind(kind)
+        .bind(charges_enabled)
+        .bind(crate::db::now())
+        .execute(&self.control)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_pac_stripe(&self, pac_id: i64) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM pac_stripe WHERE pac_id = ?").bind(pac_id).execute(&self.control).await?;
+        Ok(())
     }
 
     /// Bytes of receipts the PAC stores.
