@@ -19,7 +19,7 @@
     <a class="button" href="/transactions?uncategorized=1&account={{ account.id }}">Assign line items</a>
     <a class="button secondary" href="/import">Import another file</a>
   </p>
-  <form method="post" action="/import/{{ batch.id }}/undo" onsubmit="return confirm('Remove the transactions this import added?')">
+  <form method="post" action="/import/{{ batch.id }}/undo" data-confirm="Remove the transactions this import added?">
     <p class="small muted">Wrong file or wrong account? <button class="danger small">Undo this import</button></p>
   </form>
 </div>

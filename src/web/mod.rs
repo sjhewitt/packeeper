@@ -44,6 +44,11 @@ pub struct AppState {
     pub auth: bool,
     /// Minutes between resets when this is a public demo.
     pub demo: Option<u32>,
+    /// The server listens on this computer only. It then answers only requests
+    /// addressed to this computer, so a website cannot reach it by DNS rebinding.
+    pub loopback_only: bool,
+    /// In the desktop app: the secret that the app window holds.
+    pub desktop_secret: Option<String>,
     pub key: Key,
 }
 
@@ -70,6 +75,8 @@ pub struct Ctx {
     /// Sign-in is on (always true on a hosted server).
     pub auth: bool,
     pub demo: Option<u32>,
+    /// Inside the desktop app: files open in the computer's own apps.
+    pub desktop: bool,
     pub hosted: Option<HostedCtx>,
 }
 
@@ -91,6 +98,7 @@ impl Ctx {
             pdf_permits: app.pdf_permits.clone(),
             auth: app.auth || hosted.is_some(),
             demo: app.demo,
+            desktop: app.desktop_secret.is_some(),
             hosted,
         }
     }
@@ -167,6 +175,7 @@ pub fn router(state: AppState) -> Router {
         .route("/operator", get(hosted::operator_page))
         .route("/operator/pacs/{id}/{action}", post(hosted::operator_action))
         .route("/static/app.css", get(|| async { static_file("text/css", include_str!("../../static/app.css")) }))
+        .route("/static/app.js", get(|| async { static_file("text/javascript", include_str!("../../static/app.js")) }))
         .route(
             "/static/logo.svg",
             get(|| async { static_file("image/svg+xml", include_str!("../../static/logo.svg")) }),
@@ -210,6 +219,9 @@ pub struct Layout {
     /// On a hosted server: how many PACs the person belongs to, and whether
     /// they run the server.
     pub hosted: Option<(usize, bool)>,
+    /// Inside the desktop app. Links to files then open in the same window,
+    /// where the app hands them to the computer's own viewer.
+    pub desktop: bool,
 }
 
 /// The product name and version, shown in the page footer.
@@ -228,6 +240,11 @@ impl Layout {
 
     pub fn app_url(&self) -> &'static str {
         APP_URL
+    }
+
+    /// `target="_blank"` for links to files, except in the desktop app.
+    pub fn new_tab(&self) -> &'static str {
+        if self.desktop { "" } else { "_blank" }
     }
 
     pub fn is_hosted(&self) -> bool {
@@ -264,6 +281,7 @@ impl Layout {
             flash_err: flash.err.clone().filter(|s| !s.is_empty()),
             demo: state.demo,
             hosted: state.hosted.as_ref().map(|h| (h.pac_count, h.person.is_operator)),
+            desktop: state.desktop,
         })
     }
 }
@@ -366,4 +384,4 @@ pub fn opt_id(s: &Option<String>) -> Option<i64> {
 
 pub type UserExt = Extension<CurrentUser>;
 
-pub use auth::{add_user, hash_password, verify_password};
+pub use auth::{DESKTOP_COOKIE, add_user, hash_password, verify_password};

@@ -13,7 +13,7 @@
   </div>
   {% if layout.can_edit %}
   <div class="actions">
-    <form method="post" action="/transactions/{{ r.tx.id }}/delete" onsubmit="return confirm('Delete this transaction and its receipts? {% if r.tx.source == "import" %}It will come back if you import the same bank file again.{% endif %}')">
+    <form method="post" action="/transactions/{{ r.tx.id }}/delete" data-confirm="Delete this transaction and its receipts? {% if r.tx.source == "import" %}It will come back if you import the same bank file again.{% endif %}">
       <button class="danger small">Delete</button>
     </form>
   </div>
@@ -124,13 +124,13 @@
   <div class="receipts">
     {% for a in attachments %}
     <div class="receipt">
-      <a href="/attachments/{{ a.id }}" target="_blank">
+      <a href="/attachments/{{ a.id }}" target="{{ layout.new_tab() }}">
         {% if a.is_image() %}<img src="/attachments/{{ a.id }}" alt="{{ a.filename }}">{% else %}<div class="doc">{% if a.content_type == "application/pdf" %}PDF{% else %}FILE{% endif %}</div>{% endif %}
       </a>
       <div class="name" title="{{ a.filename }}">{{ a.filename }}</div>
       <div class="muted">{{ a.size_label() }} · {{ a.uploaded_at }}</div>
       {% if layout.can_edit %}
-      <form method="post" action="/attachments/{{ a.id }}/delete" onsubmit="return confirm('Remove this file?')"><button class="danger small">Remove</button></form>
+      <form method="post" action="/attachments/{{ a.id }}/delete" data-confirm="Remove this file?"><button class="danger small">Remove</button></form>
       {% endif %}
     </div>
     {% endfor %}

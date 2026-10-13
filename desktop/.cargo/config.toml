@@ -1,0 +1,3 @@
+# Share build output with the main crate, so PAC Keeper compiles once.
+[build]
+target-dir = "../target"

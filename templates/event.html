@@ -8,7 +8,7 @@
   </div>
   {% if layout.can_edit && rows.is_empty() %}
   <div class="actions">
-    <form method="post" action="/gaming/events/{{ e.id }}/delete" onsubmit="return confirm('Delete this event?')"><button class="danger small">Delete</button></form>
+    <form method="post" action="/gaming/events/{{ e.id }}/delete" data-confirm="Delete this event?"><button class="danger small">Delete</button></form>
   </div>
   {% endif %}
 </div>

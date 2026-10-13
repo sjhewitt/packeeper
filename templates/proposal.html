@@ -21,7 +21,7 @@
 <div class="panel">
   <h2>Start from last year</h2>
   <p class="small muted">This sets every proposed amount. Notes are kept. {% if settings.enrolment > 0 %}The gaming grant line uses {{ settings.enrolment }} students × {{ settings.gaming_rate() }} = {{ p.expected_grant }}.{% else %}Enter the enrolment in <a href="/settings">settings</a> to estimate the gaming grant.{% endif %}</p>
-  <form method="post" action="/budget/proposal/fill" style="display:flex; gap: 8px; flex-wrap: wrap;" onsubmit="return confirm('Replace all proposed amounts?')">
+  <form method="post" action="/budget/proposal/fill" style="display:flex; gap: 8px; flex-wrap: wrap;" data-confirm="Replace all proposed amounts?">
     <input type="hidden" name="base" value="{{ p.base.id }}">
     <button name="how" value="budget" class="secondary">Copy {{ p.base.label }} budget</button>
     <button name="how" value="actual" class="secondary">Copy {{ p.base.label }} actuals</button>

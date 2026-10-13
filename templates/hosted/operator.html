@@ -21,7 +21,7 @@
       <td class="nowrap small">{{ r.pac.created_at }}</td>
       <td class="nowrap">
         <form method="post" action="/operator/pacs/{{ r.pac.id }}/approve" class="inline"><button class="small">Approve</button></form>
-        <form method="post" action="/operator/pacs/{{ r.pac.id }}/reject" class="inline" data-confirm="Reject {{ r.pac.name }}?" onsubmit="return confirm(this.dataset.confirm)"><button class="danger small">Reject</button></form>
+        <form method="post" action="/operator/pacs/{{ r.pac.id }}/reject" class="inline" data-confirm="Reject {{ r.pac.name }}?"><button class="danger small">Reject</button></form>
       </td>
     </tr>
   {% endfor %}
@@ -40,7 +40,7 @@
       <td class="num">{{ r.members }}</td>
       <td class="num">{{ r.storage }}</td>
       <td class="nowrap small">{% if let Some(d) = r.pac.decided_at %}{{ d }}{% endif %}</td>
-      <td><form method="post" action="/operator/pacs/{{ r.pac.id }}/suspend" class="inline" data-confirm="Suspend {{ r.pac.name }}? Its members cannot open it until you reactivate it." onsubmit="return confirm(this.dataset.confirm)"><button class="danger small">Suspend</button></form></td>
+      <td><form method="post" action="/operator/pacs/{{ r.pac.id }}/suspend" class="inline" data-confirm="Suspend {{ r.pac.name }}? Its members cannot open it until you reactivate it."><button class="danger small">Suspend</button></form></td>
     </tr>
   {% endfor %}
   </tbody>

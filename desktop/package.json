@@ -1,0 +1,11 @@
+{
+  "name": "pac-keeper-desktop",
+  "private": true,
+  "description": "Builds the PAC Keeper desktop app with the Tauri CLI",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.2"
+  }
+}

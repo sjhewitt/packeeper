@@ -55,7 +55,7 @@
         <td class="num">{{ b.rows_new }}</td>
         <td class="num">{{ b.rows_matched }}</td>
         <td class="num">{{ b.rows_duplicate }}</td>
-        <td><form method="post" action="/import/{{ b.id }}/undo" onsubmit="return confirm('Remove the {{ b.rows_new }} transactions this import added? Line items, notes, and receipts on them are removed too.')"><button class="danger small">Undo</button></form></td>
+        <td><form method="post" action="/import/{{ b.id }}/undo" data-confirm="Remove the {{ b.rows_new }} transactions this import added? Line items, notes, and receipts on them are removed too."><button class="danger small">Undo</button></form></td>
       </tr>
     {% endfor %}
     </tbody>

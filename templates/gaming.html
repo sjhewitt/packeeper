@@ -12,7 +12,7 @@
         {% for y in years %}<option value="{{ y.id }}" {% if y.id == g.fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
       </select>
     </form>
-    <a class="button" href="/reports/gaming.pdf?fy={{ g.fy.id }}" target="_blank">Worksheet PDF</a>
+    <a class="button" href="/reports/gaming.pdf?fy={{ g.fy.id }}" target="{{ layout.new_tab() }}">Worksheet PDF</a>
   </div>
 </div>
 

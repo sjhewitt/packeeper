@@ -27,7 +27,7 @@
           {% else %}{% if m.role == "treasurer" %}Treasurer{% else %}Viewer{% endif %}{% endif %}
         </td>
         <td class="nowrap">{{ m.joined }}</td>
-        <td>{% if layout.can_edit %}<form method="post" action="/members/{{ m.person_id }}/remove" class="inline" onsubmit="return confirm('{% if m.person_id == me %}Leave this PAC?{% else %}Remove this member?{% endif %}')"><button class="danger small">{% if m.person_id == me %}Leave{% else %}Remove{% endif %}</button></form>{% endif %}</td>
+        <td>{% if layout.can_edit %}<form method="post" action="/members/{{ m.person_id }}/remove" class="inline" data-confirm="{% if m.person_id == me %}Leave this PAC?{% else %}Remove this member?{% endif %}"><button class="danger small">{% if m.person_id == me %}Leave{% else %}Remove{% endif %}</button></form>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>

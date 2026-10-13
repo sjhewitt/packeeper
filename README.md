@@ -31,9 +31,30 @@ It is one program and one data folder. It runs on the treasurer's computer. It c
   - **Budget proposal:** next year's budget beside last year's budget and actuals, with an approval block. Start it from last year's budget or actuals.
   - **Gaming Account Summary worksheet:** the figures for each line of the provincial form, with every disbursement itemized.
 
+## Desktop app
+
+PAC Keeper runs as an app on a Mac or a Windows computer. Download it from the project's GitHub releases:
+
+- **Mac:** the `.dmg` file, for Apple silicon and Intel Macs. Open it and drag PAC Keeper to Applications.
+- **Windows:** the `-setup.exe` file. It installs for the current user, so it does not ask for an administrator.
+
+The apps are not signed yet, so the computer warns you the first time:
+
+- **Mac:** macOS says it cannot check PAC Keeper. Click Done. Open System Settings, then Privacy & Security. Scroll down and click Open Anyway next to PAC Keeper.
+- **Windows:** "Windows protected your PC" shows. Click More info, then Run anyway.
+
+The app keeps the records on the computer, in the app data folder:
+
+- Mac: `~/Library/Application Support/PAC Keeper`
+- Windows: `%LOCALAPPDATA%\PAC Keeper`
+
+The records are not in Documents, because iCloud and OneDrive often sync Documents, and syncing can damage a database that is open. **Settings → Show the folder** opens the folder. **Settings → Save a backup** puts a zip in Downloads. To move the records to another computer, close PAC Keeper on both computers, then copy the folder.
+
+The app is the same program as the server below, in a native window. Only the app window can open the records: the server listens on this computer only and needs a secret that changes on every start. PDFs and receipts open in the computer's viewer. Other attached files are saved in Downloads and never opened, so a file cannot run by a click.
+
 ## Start
 
-You need [Rust](https://rustup.rs).
+To run PAC Keeper in a web browser, or on a server, build it from source. You need [Rust](https://rustup.rs).
 
 ```sh
 cargo build --release
@@ -243,5 +264,23 @@ cargo test     # unit tests and report balance checks on the example data
 cargo clippy
 cargo fmt
 ```
+
+### Desktop app
+
+The desktop app is the `desktop/` crate, built with [Tauri 2](https://tauri.app). It shares the `target/` folder with the main crate. You need Node.js for the Tauri command-line tool.
+
+```sh
+cd desktop
+npm ci
+npm run tauri dev                                  # run it
+npm run tauri build -- --bundles app,dmg           # Mac: the .app and .dmg in target/release/bundle/
+npm run tauri build -- --bundles nsis              # Windows: the installer
+```
+
+`PAC_DATA_DIR` makes the app use another folder, for example a copy of the example data.
+
+`.github/workflows/desktop.yml` builds both apps on GitHub Actions. Run it from the Actions tab to get the files as build artifacts. Push a tag such as `v0.2.0` to also make a draft release with the files attached. Check the draft, then publish it.
+
+To sign the apps later, add an Apple Developer ID certificate and notarization secrets for macOS, and a code-signing certificate for Windows. See the Tauri guides on [macOS signing](https://tauri.app/distribute/sign/macos/) and [Windows signing](https://tauri.app/distribute/sign/windows/).
 
 See `CLAUDE.md` for the code layout.

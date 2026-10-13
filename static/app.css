@@ -52,6 +52,10 @@ header.top .org { font-size: 13px; color: #dbe7f1; white-space: nowrap; overflow
 .public-foot { text-align: center; }
 header.top .user a { color: #fff; }
 header.top .org a { color: #fff; }
+dialog.confirm { border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; max-width: 420px; width: calc(100% - 32px); box-shadow: 0 18px 50px rgba(0,0,0,.25); color: var(--ink); }
+dialog.confirm::backdrop { background: rgba(23, 34, 45, .45); }
+dialog.confirm p { margin: 0 0 18px; }
+dialog.confirm .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .demo-banner { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid #f0dca6; padding: 8px 24px; font-size: 14px; text-align: center; }
 footer.app { max-width: 1240px; margin: 0 auto; padding: 8px 24px 28px; font-size: 12px; color: var(--muted); }
 footer.app a { color: var(--muted); }

@@ -79,10 +79,65 @@ fn same_site_request(req: &Request) -> bool {
     }
 }
 
+/// The name of this computer in the request's Host header. A website that
+/// points its own name at 127.0.0.1 (DNS rebinding) sends its own name here.
+fn addressed_to_this_computer(req: &Request) -> bool {
+    let Some(host) = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()) else {
+        return true;
+    };
+    let name = if host.starts_with('[') {
+        host.split(']').next().map(|h| format!("{h}]")).unwrap_or_default()
+    } else {
+        host.split(':').next().unwrap_or("").to_string()
+    };
+    matches!(name.to_ascii_lowercase().as_str(), "127.0.0.1" | "localhost" | "[::1]")
+}
+
+pub const DESKTOP_COOKIE: &str = "pk_desktop";
+
+fn cookie_value<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
+    req.headers()
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(k, _)| *k == name)
+        .map(|(_, v)| v)
+}
+
+/// In the desktop app, only the app's own window may use the server. The
+/// window's first page (`/__desktop?k=SECRET`) hands it a cookie with the secret.
+fn desktop_check(secret: &str, req: &Request) -> Option<Response> {
+    if req.uri().path() == "/__desktop" {
+        let given = req.uri().query().unwrap_or("").split('&').find_map(|p| p.strip_prefix("k="));
+        if given != Some(secret) {
+            tracing::warn!("refused a start request with a wrong secret");
+            return Some(AppError::Forbidden.into_response());
+        }
+        let cookie = format!("{DESKTOP_COOKIE}={secret}; Path=/; HttpOnly; SameSite=Strict");
+        return Some(([(header::SET_COOKIE, cookie)], Redirect::to("/")).into_response());
+    }
+    if cookie_value(req, DESKTOP_COOKIE) == Some(secret) {
+        None
+    } else {
+        tracing::warn!("refused a request from outside the app window: {}", req.uri().path());
+        Some(AppError::BadRequest("Open PAC Keeper from its app window.".into()).into_response())
+    }
+}
+
 /// Runs before every route. It decides who is signed in and which PAC the
 /// request works on, and puts both on the request.
 pub async fn guard(State(app): State<AppState>, jar: PrivateCookieJar, mut req: Request, next: Next) -> Response {
-    if (app.auth || app.hosted.is_some()) && !same_site_request(&req) {
+    if app.loopback_only && !addressed_to_this_computer(&req) {
+        return AppError::Forbidden.into_response();
+    }
+    if let Some(secret) = &app.desktop_secret
+        && let Some(refused) = desktop_check(secret, &req)
+    {
+        return refused;
+    }
+    if (app.auth || app.hosted.is_some() || app.desktop_secret.is_some()) && !same_site_request(&req) {
         return AppError::Forbidden.into_response();
     }
     if let Some(hosted) = app.hosted.clone() {

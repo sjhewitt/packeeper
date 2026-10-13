@@ -1,0 +1,84 @@
+# Builds the PAC Keeper desktop apps: one .dmg for every Mac (Apple silicon
+# and Intel) and one installer for Windows. The apps are not signed yet.
+#
+# Run it from the Actions tab to get the files as build artifacts. Push a tag
+# such as v0.2.0 to also make a draft GitHub release with the files attached.
+
+name: Desktop apps
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            runner: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+            files: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          - name: windows
+            runner: windows-latest
+            rust_targets: ""
+            args: --bundles nsis
+            files: target/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> ../target
+          key: ${{ matrix.name }}
+
+      - name: Install the Tauri CLI
+        working-directory: desktop
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: PAC Keeper ${{ github.ref_name }}
+          releaseDraft: true
+          releaseBody: |
+            Download the file for your computer:
+
+            - **Mac**: the `.dmg` file. Open it and drag PAC Keeper to Applications.
+            - **Windows**: the `-setup.exe` file. Run it. It installs for you only, so it does not ask for an administrator.
+
+            These apps are not signed yet, so the computer warns you the first time:
+
+            - **Mac**: macOS says it cannot check PAC Keeper. Click Done. Open System Settings, then Privacy & Security. Scroll down and click Open Anyway next to PAC Keeper.
+            - **Windows**: "Windows protected your PC" shows. Click More info, then Run anyway.
+
+            The records stay on your computer. In PAC Keeper, Settings shows the folder and saves backups.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pac-keeper-${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error

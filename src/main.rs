@@ -1,24 +1,11 @@
-//! PAC Keeper: bookkeeping and reports for a BC school Parent Advisory Committee.
-//! <https://packeeper.ca>
-
-mod db;
-mod demo;
-mod fiscal;
-mod hosted;
-mod import;
-mod ledger;
-mod models;
-mod money;
-mod reports;
-mod web;
+//! The pac-keeper command line.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use anyhow::Context;
-use axum_extra::extract::cookie::Key;
 use clap::{Parser, Subcommand};
+use pac_keeper::{demo, fiscal, hosted, models, reports, server, web};
 
 #[derive(Parser)]
 #[command(
@@ -147,16 +134,16 @@ async fn main() -> anyhow::Result<()> {
             if demo {
                 anyhow::bail!("--demo runs on a single-PAC folder, not with --hosted");
             }
-            serve_hosted(&dir, bind, base_url, quota_mb).await
+            server::serve_hosted(&dir, bind, base_url, quota_mb).await
         }
         Command::Serve { bind, auth, demo, demo_reset_minutes, .. } => {
-            let pool = open_single(&dir).await?;
-            serve(pool, &dir, bind, auth, demo.then_some(demo_reset_minutes)).await
+            let pool = server::open_single(&dir).await?;
+            server::serve(pool, &dir, bind, auth, demo.then_some(demo_reset_minutes)).await
         }
-        Command::User { command } => users(&open_single(&dir).await?, command).await,
-        Command::Pdf { report, output } => pdf(&open_single(&dir).await?, report, output).await,
+        Command::User { command } => users(&server::open_single(&dir).await?, command).await,
+        Command::Pdf { report, output } => pdf(&server::open_single(&dir).await?, report, output).await,
         Command::Demo => {
-            demo::load(&open_single(&dir).await?, &dir).await?;
+            demo::load(&server::open_single(&dir).await?, &dir).await?;
             println!("Loaded the example PAC. Start PAC Keeper with the same --data-dir and open it in a browser.");
             Ok(())
         }
@@ -169,55 +156,11 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-/// The database of a single-PAC folder. Refuses a hosted server's folder.
-async fn open_single(dir: &Path) -> anyhow::Result<sqlx::SqlitePool> {
-    if dir.join("control.db").exists() {
-        anyhow::bail!("{} is a hosted server's folder; run it with serve --hosted", dir.display());
-    }
-    let pool = db::open(dir).await?;
-    db::seed(&pool).await?;
-    fiscal::current(&pool).await?;
-    Ok(pool)
-}
-
-async fn open_hosted(dir: &Path, base_url: String, quota_mb: i64) -> anyhow::Result<hosted::Hosted> {
-    if dir.join("pac.db").exists() {
-        anyhow::bail!("{} holds one PAC's records. A hosted server needs its own, separate folder.", dir.display());
-    }
-    let mailer = hosted::mail::Mailer::from_env(dir.join("outbox"))?;
-    hosted::Hosted::open(dir, base_url, mailer, quota_mb * 1024 * 1024).await
-}
-
-async fn serve_hosted(dir: &Path, bind: SocketAddr, base_url: String, quota_mb: i64) -> anyhow::Result<()> {
-    let hosted = open_hosted(dir, base_url, quota_mb).await?;
-    let operators: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM people WHERE is_operator = 1").fetch_one(&hosted.control).await?;
-    println!("PAC Keeper (hosted) is running at http://{bind}");
-    println!("Public address: {}", hosted.base_url);
-    println!("Data folder: {}", dir.canonicalize().unwrap_or(dir.to_path_buf()).display());
-    println!("Email: {}", hosted.mailer.describe());
-    if operators == 0 {
-        println!("No operator yet. Add one with: pac-keeper --data-dir {} operator you@example.org", dir.display());
-    }
-    let state = web::AppState {
-        single: None,
-        hosted: Some(Arc::new(hosted)),
-        renderer: Arc::new(reports::pdf::Renderer::new()),
-        pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
-        auth: true,
-        demo: None,
-        key: load_key(dir)?,
-    };
-    let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
-    axum::serve(listener, web::router(state)).with_graceful_shutdown(shutdown_signal()).await?;
-    Ok(())
-}
-
 async fn operator(dir: &Path, email: &str, name: &str) -> anyhow::Result<()> {
     if !hosted::looks_like_email(email) {
         anyhow::bail!("{email} is not an email address");
     }
-    let hosted = open_hosted(dir, String::new(), 1024).await?;
+    let hosted = server::open_hosted(dir, String::new(), 1024).await?;
     let person = hosted.ensure_person(&email.to_lowercase(), name).await?;
     if person.password_hash.is_none() {
         let password = read_password(email)?;
@@ -245,92 +188,6 @@ fn read_password(who: &str) -> anyhow::Result<String> {
         anyhow::bail!("use a password of at least 10 characters");
     }
     Ok(password)
-}
-
-/// `demo` is the number of minutes between demo resets, when this is a public demo.
-async fn serve(
-    pool: sqlx::SqlitePool,
-    data_dir: &Path,
-    bind: SocketAddr,
-    auth: bool,
-    demo: Option<u32>,
-) -> anyhow::Result<()> {
-    if let Some(minutes) = demo {
-        demo::reset(&pool, data_dir).await?;
-        let (pool, dir) = (pool.clone(), data_dir.to_path_buf());
-        tokio::spawn(async move {
-            let mut every = tokio::time::interval(std::time::Duration::from_secs(u64::from(minutes) * 60));
-            every.tick().await; // The first tick is immediate; the data is fresh already.
-            loop {
-                every.tick().await;
-                match demo::reset(&pool, &dir).await {
-                    Ok(()) => tracing::info!("demo data reset"),
-                    Err(e) => tracing::error!("demo reset failed: {e:#}"),
-                }
-            }
-        });
-    }
-    let state = web::AppState {
-        single: Some(web::Single { pool, data_dir: data_dir.to_path_buf() }),
-        hosted: None,
-        renderer: Arc::new(reports::pdf::Renderer::new()),
-        pdf_permits: Arc::new(tokio::sync::Semaphore::new(2)),
-        auth: auth || demo.is_some(),
-        demo,
-        key: load_key(data_dir)?,
-    };
-    let app = web::router(state);
-    let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
-    println!("PAC Keeper is running at http://{bind}");
-    println!("Data folder: {}", data_dir.canonicalize().unwrap_or(data_dir.to_path_buf()).display());
-    if let Some(minutes) = demo {
-        println!(
-            "Public demo: sign in as {} / {}. The data resets every {minutes} minutes.",
-            demo::DEMO_USERNAME,
-            demo::DEMO_PASSWORD
-        );
-    } else if !auth && !bind.ip().is_loopback() {
-        println!(
-            "Warning: sign-in is off but the app listens on {bind}. Anyone on the network can change the records. Use --auth."
-        );
-    }
-    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
-    Ok(())
-}
-
-/// Ctrl-C, or SIGTERM from a container runtime.
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        let mut term =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("signal handler");
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = term.recv() => {}
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
-    }
-}
-
-/// The key that encrypts session cookies, made on first run.
-fn load_key(data_dir: &Path) -> anyhow::Result<Key> {
-    let path = data_dir.join("secret.key");
-    if let Ok(bytes) = std::fs::read(&path)
-        && bytes.len() >= 64
-    {
-        return Ok(Key::from(&bytes));
-    }
-    let key = Key::generate();
-    std::fs::write(&path, key.master())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(key)
 }
 
 async fn users(pool: &sqlx::SqlitePool, command: UserCommand) -> anyhow::Result<()> {
