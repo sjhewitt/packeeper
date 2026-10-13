@@ -119,6 +119,7 @@ p { margin: 0; }
 .button:hover { filter: brightness(1.1); }
 .button.ghost { background: transparent; color: var(--navy); }
 .top nav .button { padding: 8px 14px; font-size: .95rem; color: var(--navy-ink); }
+.hero .cta .button { padding-inline: 16px; }
 
 /* Hero */
 .hero { padding-block: 40px 72px; position: relative; }
@@ -196,6 +197,10 @@ section { padding-block: 84px; }
 .handover { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; }
 .handover div { display: grid; gap: 10px; align-content: start; border-top: 2px solid var(--ink); padding-top: 16px; }
 .handover p { color: var(--ink-soft); }
+.download ol { margin: 0; padding-left: 1.25em; display: grid; gap: 6px; color: var(--ink-soft); }
+.download .button { justify-self: start; }
+.download code { white-space: nowrap; }
+.download-note { margin-top: 28px; color: var(--ink-soft); max-width: 46rem; }
 
 /* FAQ */
 .faq { max-width: 46rem; display: grid; }
@@ -232,6 +237,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
     <nav aria-label="Sections">
       <a class="hide-narrow" href="#gaming">Gaming grant</a>
       <a class="hide-narrow" href="#reports">Reports</a>
+      <a class="hide-narrow" href="#download">Download</a>
       <a class="hide-narrow" href="#questions">Questions</a>
       <a href="https://app.packeeper.ca/login">Sign in</a>
       <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
@@ -249,6 +255,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         <div class="cta">
           <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
           <a class="button ghost" href="https://app.packeeper.ca/signup">Request an account</a>
+          <a class="button ghost" href="#download">Download</a>
         </div>
         <p class="login-note">Demo sign-in: <code>demo</code> / <code>packeeper</code> · made-up PAC, resets every hour</p>
       </div>
@@ -407,13 +414,51 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         </div>
         <div>
           <h3>Hosted, or on your computer</h3>
-          <p>With a hosted account, the treasurer edits and invites the chair and signing officers to view. A new treasurer is one invitation away. Or install the PAC Keeper app on the treasurer's Mac or Windows computer.</p>
+          <p>With a hosted account, the treasurer edits and invites the chair and signing officers to view. A new treasurer is one invitation away. Or <a href="#download">install the PAC Keeper app</a> on the treasurer's Mac or Windows computer.</p>
         </div>
         <div>
           <h3>Any fiscal year</h3>
           <p>July to June, September to August, or the year in your bylaws. Budgets stay line by line from one year to the next, so years compare.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Download</p>
+        <h2>PAC Keeper on the treasurer's computer.</h2>
+        <p class="lede">The app for Mac and Windows keeps the records on your computer. There is no account to set up, and it works without an internet connection.</p>
+      </div>
+      <div class="handover download">
+        <div>
+          <h3>Mac</h3>
+          <p>For Apple silicon and Intel Macs with macOS 11 or later.</p>
+          <a class="button" href="https://github.com/sjhewitt/packeeper/releases/latest">Download for Mac</a>
+          <ol>
+            <li>On the download page, click the <code>.dmg</code> file.</li>
+            <li>Open it and drag PAC Keeper to Applications.</li>
+            <li>The first time, macOS says it cannot check PAC Keeper. Click Done. Open System Settings, then Privacy &amp; Security, and click Open Anyway.</li>
+          </ol>
+        </div>
+        <div>
+          <h3>Windows</h3>
+          <p>For 64-bit Windows 10 and 11.</p>
+          <a class="button" href="https://github.com/sjhewitt/packeeper/releases/latest">Download for Windows</a>
+          <ol>
+            <li>On the download page, click the <code>-setup.exe</code> file.</li>
+            <li>Run it. It installs for you only, so it does not ask for an administrator.</li>
+            <li>If "Windows protected your PC" shows, click More info, then Run anyway.</li>
+          </ol>
+        </div>
+        <div>
+          <h3>Your records</h3>
+          <p>The app keeps the database, the receipts, and the bank files in one folder on your computer. <strong>Settings</strong> shows the folder and saves a backup to Downloads.</p>
+          <p>To move the records to another computer, close PAC Keeper on both computers and copy that folder to the same place. To share the books with the executive, use a hosted account instead.</p>
+        </div>
+      </div>
+      <p class="download-note">The computer asks you to confirm the first time because the app is not signed with a paid developer certificate yet. Both downloads come from PAC Keeper's releases page on GitHub.</p>
     </div>
   </section>
 
@@ -446,7 +491,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         </details>
         <details>
           <summary>Is there an app for Mac or Windows?</summary>
-          <p>Yes. Install PAC Keeper on the treasurer's computer. It keeps the records on that computer, works without an internet connection, and has no account to set up. It is for one person. To share the books with the executive, use a hosted account.</p>
+          <p>Yes. Install PAC Keeper on the treasurer's computer. It keeps the records on that computer, works without an internet connection, and has no account to set up. It is for one person. To share the books with the executive, use a hosted account. <a href="#download">Download the app</a>.</p>
         </details>
         <details>
           <summary>What can I do in the demo?</summary>
