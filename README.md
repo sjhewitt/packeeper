@@ -18,6 +18,10 @@ It is one program and one data folder. It runs on the treasurer's computer. It c
 - **Assigns transactions to budget line items.**
   - One transaction can be split across several line items.
   - Rules assign repeat transactions automatically, such as bank fees.
+- **Tracks fundraisers** that come back every year, such as hot lunch, Purdy's chocolates, or the fall fair. Add each fundraiser once and use it every year.
+  - Give a transaction, or one part of a split transaction, its fundraiser: the sales, and the costs such as the supplier's bill.
+  - Each fundraiser shows its income, costs, and net for the fiscal year, its progress toward that year's goal, and every year side by side. The dashboard shows every fundraiser's year to date.
+  - Rules can set the fundraiser at import.
 - **Keeps the gaming account apart.** Each account is *general* or *gaming*. A transaction can only use line items from its own fund. The app checks the gaming grant conditions:
   - It finds deposits that are not the grant, interest, or a GST rebate.
   - It finds payments with no receipt or no purpose.
@@ -26,8 +30,9 @@ It is one program and one data folder. It runs on the treasurer's computer. It c
   - It shows the date the report is due.
 - **Records licensed gaming events** (ticket raffles, bingo, and others) with the licence number, class, and dates. Event revenue goes on lines 6 to 13 of the Gaming Account Summary Report. Prizes and event expenses go on lines 19 to 26. The app warns when a finished event cost more than it raised.
 - **Makes PDF reports:**
-  - **Monthly treasurer's report:** bank balances with a check against the bank, budget against actual for the month and year to date, every transaction, and items to resolve.
-  - **Annual report for the AGM:** fund balances, budget against actual with variances, monthly totals, the gaming summary, the treasurer's notes, and signature lines.
+  - **Monthly treasurer's report:** bank balances with a check against the bank, budget against actual for the month and year to date, fundraisers for the month and year to date, every transaction, and items to resolve.
+  - **Annual report for the AGM:** fund balances, budget against actual with variances, each fundraiser's net against its goal and the year before, monthly totals, the gaming summary, the treasurer's notes, and signature lines.
+  - **Fundraiser status report:** one fundraiser's income, costs, net, and goal for a year, by line item, with its transactions and every year side by side.
   - **Budget proposal:** next year's budget beside last year's budget and actuals, with an approval block. Start it from last year's budget or actuals.
   - **Gaming Account Summary worksheet:** the figures for each line of the provincial form, with every disbursement itemized.
 
@@ -87,12 +92,21 @@ The example PAC has a year and a half of activity, both kinds of account, a gami
 ## Monthly work
 
 1. Download the account activity from Prospera for each account and import it.
-2. Open **Transactions** and choose a line item for each new row. Rows with no line item are highlighted.
+2. Open **Transactions** and choose a line item for each new row. Rows with no line item are highlighted. For fundraiser money, choose the fundraiser in the next column. To give each part of a split its own fundraiser, open the transaction.
 3. Open each payment and attach the receipt. For gaming payments, enter the purpose.
 4. When the gaming account repays the general account, open the transfer and tick the general expenses it repays.
 5. Open **Reports** and make the monthly report for the meeting.
 
 The dashboard shows what needs attention. The bank balance from each import is compared with the books. A difference usually means a missing import or a wrong opening balance.
+
+## Fundraisers
+
+A fundraiser is not tied to a year. Add "Purdy's chocolates" once; next year, its new orders go on the same fundraiser, and its page shows both years side by side.
+
+- Fundraisers are for general-account money. Gaming funds cannot pay fundraising costs. Record a licensed raffle or bingo as a licensed gaming event.
+- Income is the money in and costs are the money out, of the parts that carry the fundraiser. Net is income less costs. A goal is the net to raise in one fiscal year.
+- Fundraisers are a second view of the same money. Each part still counts on its line item in the budget and the reports.
+- Mark a fundraiser inactive when the PAC stops running it. Its past years stay in the reports. A fundraiser with no transactions can be deleted.
 
 ## Exporting from Prospera
 

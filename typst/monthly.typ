@@ -34,6 +34,17 @@
   ]
 ]
 
+#if data.fundraisers.len() > 0 [
+  = Fundraisers
+  #fin-table(
+    columns: (2.2fr, 1fr, 1fr, 1fr, 1fr, 1fr),
+    align: "lrrrrr",
+    header: ("Fundraiser", "Net " + data.month_short, "Income to date", "Costs to date", "Net to date", "Goal"),
+    rows: data.fundraisers,
+  )
+  #text(9pt, fill: muted)[Net is income less costs. The same money is also in the line items above.]
+]
+
 = Transactions in #data.month_label
 
 #if data.transactions.len() == 0 [

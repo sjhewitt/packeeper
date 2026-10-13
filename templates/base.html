@@ -17,11 +17,12 @@
       <a href="/transactions" {% if layout.nav == "transactions" %}class="on"{% endif %}>Transactions{% if layout.counts.uncategorized > 0 %}<span class="count" title="Transactions with no line item">{{ layout.counts.uncategorized }}</span>{% endif %}</a>
       {% if layout.can_edit %}<a href="/import" {% if layout.nav == "import" %}class="on"{% endif %}>Import</a>{% endif %}
       <a href="/budget" {% if layout.nav == "budget" %}class="on"{% endif %}>Budget</a>
+      <a href="/fundraisers" {% if layout.nav == "fundraisers" %}class="on"{% endif %}>Fundraisers</a>
       <a href="/gaming" {% if layout.nav == "gaming" %}class="on"{% endif %}>Gaming</a>
       <a href="/reports" {% if layout.nav == "reports" %}class="on"{% endif %}>Reports</a>
       <a href="/settings" {% if layout.nav == "settings" %}class="on"{% endif %}>Settings</a>
     </nav>
-    <div class="org" title="Change the name in Settings">{{ layout.pac_name }}{% if layout.many_pacs() %} · <a href="/pacs">Switch PAC</a>{% endif %}</div>
+    <div class="org" title="Change the name in Settings"><span class="org-name">{{ layout.pac_name }}{% if layout.many_pacs() %} · {% endif %}</span>{% if layout.many_pacs() %}<a href="/pacs">Switch PAC</a>{% endif %}</div>
     {% if let Some(name) = layout.user_name %}
     <div class="user">{% if layout.is_hosted() %}<a href="/account">{{ name }}</a>{% if layout.is_operator() %} · <a href="/operator">Operator</a>{% endif %}{% else %}{{ name }}{% endif %}<form method="post" action="/logout"><button>Sign out</button></form></div>
     {% endif %}

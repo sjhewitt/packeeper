@@ -191,14 +191,17 @@ pub async fn apply(
                 .execute(&mut *tx)
                 .await?
                 .last_insert_rowid();
-                if let Some((_, line_item)) = rule {
+                if let Some((rule, line_item)) = rule {
                     result.auto_assigned += 1;
                     sqlx::query(
-                        "INSERT INTO allocations (transaction_id, line_item_id, amount_cents) VALUES (?, ?, ?)",
+                        "INSERT INTO allocations (transaction_id, line_item_id, amount_cents, fundraiser_id)
+                         VALUES (?, ?, ?, ?)",
                     )
                     .bind(id)
                     .bind(line_item.id)
                     .bind(row.amount_cents)
+                    // rules_for keeps only rules in the account's fund; fundraisers are general only.
+                    .bind(if account.is_gaming() { None } else { rule.fundraiser_id })
                     .execute(&mut *tx)
                     .await?;
                 }

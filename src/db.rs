@@ -217,6 +217,15 @@ pub async fn gaming_event(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<c
     Ok(sqlx::query_as("SELECT * FROM gaming_events WHERE id = ?").bind(id).fetch_optional(pool).await?)
 }
 
+/// Active fundraisers first, then by name.
+pub async fn fundraisers(pool: &SqlitePool) -> anyhow::Result<Vec<crate::models::Fundraiser>> {
+    Ok(sqlx::query_as("SELECT * FROM fundraisers ORDER BY active DESC, name COLLATE NOCASE").fetch_all(pool).await?)
+}
+
+pub async fn fundraiser(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<crate::models::Fundraiser>> {
+    Ok(sqlx::query_as("SELECT * FROM fundraisers WHERE id = ?").bind(id).fetch_optional(pool).await?)
+}
+
 pub async fn accounts(pool: &SqlitePool) -> anyhow::Result<Vec<Account>> {
     Ok(sqlx::query_as("SELECT * FROM accounts ORDER BY active DESC, kind, name").fetch_all(pool).await?)
 }

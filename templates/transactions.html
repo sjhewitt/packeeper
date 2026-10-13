@@ -42,6 +42,15 @@
       {% for li in line_items %}<option value="{{ li.id }}" {% if self.is_line(li.id) %}selected{% endif %}>{% if li.fund == "gaming" %}Gaming: {% endif %}{{ li.name }}</option>{% endfor %}
     </select>
   </div>
+  {% if !fundraisers.is_empty() %}
+  <div class="field">
+    <label for="fundraiser">Fundraiser</label>
+    <select id="fundraiser" name="fundraiser" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for f in fundraisers %}<option value="{{ f.id }}" {% if self.is_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <div class="field">
     <label for="q">Search</label>
     <input type="search" id="q" name="q" value="{{ search }}" placeholder="Description, payee, notes">
@@ -56,10 +65,10 @@
 
 <div class="panel" style="padding: 0;">
   <table>
-    <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Line item</th><th class="num">Amount</th><th>Receipt</th></tr></thead>
+    <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Line item</th>{% if !fundraisers.is_empty() %}<th>Fundraiser</th>{% endif %}<th class="num">Amount</th><th>Receipt</th></tr></thead>
     <tbody>
       {% for r in rows %}{% include "partials/tx_row.html" %}{% endfor %}
-      {% if rows.is_empty() %}<tr><td colspan="6" class="muted" style="padding: 18px;">No transactions match.</td></tr>{% endif %}
+      {% if rows.is_empty() %}<tr><td colspan="7" class="muted" style="padding: 18px;">No transactions match.</td></tr>{% endif %}
     </tbody>
   </table>
 </div>

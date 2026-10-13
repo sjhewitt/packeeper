@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Fundraisers</h1>
+    <p class="sub">What each fundraiser took in and spent in {{ fy.label }}, and its net against the goal. A fundraiser stays from year to year.</p>
+  </div>
+  <div class="actions">
+    <form method="get" action="/fundraisers">
+      <select name="fy" onchange="this.form.submit()" aria-label="Fiscal year">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+{% if !rows.is_empty() %}
+<div class="grid cards">
+  <div class="card general"><div class="label">Income</div><div class="value">{{ total.income }}</div><div class="note">{{ fy.label }}</div></div>
+  <div class="card"><div class="label">Costs</div><div class="value">{{ total.costs }}</div><div class="note">{{ fy.label }}</div></div>
+  <div class="card {% if total.net().is_negative() %}alert{% else %}general{% endif %}"><div class="label">Net raised</div><div class="value">{{ total.net() }}</div><div class="note">{% if self.any_goal() %}goals add up to {{ self.goal_total() }}{% else %}no goals set{% endif %}</div></div>
+</div>
+{% endif %}
+
+<div class="panel" style="padding: 0;">
+  <table>
+    <thead><tr><th>Fundraiser</th><th class="num">Income</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Goal</th><th>Progress</th>{% if self.has_last_year() %}<th class="num">Last year</th>{% endif %}</tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>
+          <a href="/fundraisers/{{ r.fundraiser.id }}?fy={{ fy.id }}">{{ r.fundraiser.name }}</a>
+          {% if !r.fundraiser.active %}<span class="tag muted">inactive</span>{% endif %}
+          <br><span class="small muted">{% if r.totals.is_empty() %}nothing yet this year{% else %}{{ r.totals.parts }} transaction part(s){% endif %}</span>
+        </td>
+        <td class="num">{{ r.totals.income }}</td>
+        <td class="num">{{ r.totals.costs }}</td>
+        <td class="num {% if r.net().is_negative() %}neg{% endif %}"><strong>{{ r.net() }}</strong></td>
+        <td class="num">{% if let Some(g) = r.goal %}{{ g }}{% else %}<span class="muted">–</span>{% endif %}</td>
+        <td style="min-width: 140px;">
+          {% if let Some(p) = r.percent() %}
+          <div class="bar"><span style="width: {{ r.bar() }}%; {% if r.reached() %}background: var(--good);{% endif %}"></span></div>
+          <span class="small {% if r.reached() %}pos{% else %}muted{% endif %}">{{ p }}%{% if let Some(m) = r.to_go() %} · {{ m }} to go{% else %} · goal reached{% endif %}</span>
+          {% endif %}
+        </td>
+        {% if self.has_last_year() %}<td class="num">{% if let Some(n) = r.last_year_net() %}{{ n }}{% else %}<span class="muted">–</span>{% endif %}</td>{% endif %}
+      </tr>
+    {% endfor %}
+    {% if rows.is_empty() %}<tr><td colspan="7" class="muted" style="padding: 18px;">No fundraisers yet. Add one below, such as Purdy's chocolates, hot lunch, or the spring fair.</td></tr>
+    {% else %}
+      <tr class="total">
+        <td>Total</td>
+        <td class="num">{{ total.income }}</td>
+        <td class="num">{{ total.costs }}</td>
+        <td class="num">{{ total.net() }}</td>
+        <td class="num">{% if self.any_goal() %}{{ self.goal_total() }}{% endif %}</td>
+        <td></td>{% if self.has_last_year() %}<td></td>{% endif %}
+      </tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if !inactive.is_empty() %}
+<p class="small muted">Inactive, with nothing in {{ fy.label }}:
+  {% for f in inactive %}<a href="/fundraisers/{{ f.id }}?fy={{ fy.id }}">{{ f.name }}</a>{% if !loop.last %}, {% endif %}{% endfor %}</p>
+{% endif %}
+
+{% if layout.can_edit %}
+<form class="panel" method="post" action="/fundraisers" style="max-width: 760px;">
+  <h2>Add a fundraiser</h2>
+  <p class="small muted">Add each fundraiser once. Next year, use the same one again: its page shows every year side by side.</p>
+  <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" placeholder="Purdy's chocolates" required></div>
+  <div class="field"><label for="description">Description</label><textarea id="description" name="description" placeholder="When it runs, who organizes it, and how the money comes in"></textarea></div>
+  <button>Add fundraiser</button>
+</form>
+{% endif %}
+
+<details class="panel help">
+  <summary>How fundraisers work</summary>
+  <ul class="small">
+    <li>Open a general-account transaction and choose the fundraiser beside its line item. Do this for the money in and for the costs, such as the supplier's bill.</li>
+    <li>For a deposit or a payment that covers more than one thing, split it across line items and give each part its own fundraiser.</li>
+    <li>A rule can choose the fundraiser when you import a bank file. See <a href="/rules">Assignment rules</a>.</li>
+    <li>On a fundraiser's page, set a goal for the year: the net amount to raise.</li>
+    <li>Fundraisers show the same money a second way. The budget and the reports still count each part on its line item.</li>
+    <li>Gaming funds cannot go to a fundraiser. Record a licensed raffle or bingo as a <a href="/gaming/events">licensed gaming event</a>.</li>
+  </ul>
+</details>
+{% endblock %}

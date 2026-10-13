@@ -27,6 +27,23 @@
       {% if r.is_categorized() %}{{ r.line_names() }}{% else %}<span class="tag warn">uncategorized</span>{% endif %}
     {% endif %}
   </td>
+  {% if !fundraisers.is_empty() %}
+  <td>
+    {% if r.account_kind == "gaming" %}
+    {% else if r.is_split() %}
+      <a href="/transactions/{{ r.tx.id }}" class="small">{% if r.fundraiser_names().is_empty() %}none{% else %}{{ r.fundraiser_names() }}{% endif %}</a>
+    {% else if r.allocation_count == 0 %}
+      <span class="small muted" title="Choose a line item first">–</span>
+    {% else if can_edit %}
+      <select class="compact fundraiser" name="fundraiser_id" hx-post="/transactions/{{ r.tx.id }}/fundraiser" hx-target="#tx-{{ r.tx.id }}" hx-swap="outerHTML" aria-label="Fundraiser">
+        <option value="">—</option>
+        {% for f in fundraisers %}{% if f.active || r.is_fundraiser(f.id) %}<option value="{{ f.id }}" {% if r.is_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
+      </select>
+    {% else %}
+      {{ r.fundraiser_names() }}
+    {% endif %}
+  </td>
+  {% endif %}
   <td class="num {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
   <td class="nowrap">
     {% if r.receipt_count > 0 %}<a href="/transactions/{{ r.tx.id }}" class="tag good" title="Receipts attached">{{ r.receipt_count }} rcpt</a>

@@ -4,24 +4,25 @@
   <div>
     <p class="muted small" style="margin:0"><a href="/settings">Settings</a> ›</p>
     <h1>Assignment rules</h1>
-    <p class="sub">When a bank description contains the text, the import assigns the line item. The longest matching text wins. You can also make a rule from any transaction.</p>
+    <p class="sub">When a bank description contains the text, the import assigns the line item, and the fundraiser if the rule has one. The longest matching text wins. You can also make a rule from any transaction.</p>
   </div>
 </div>
 
 <div class="panel" style="padding: 0;">
   <table>
-    <thead><tr><th>Description contains</th><th>Account</th><th>Line item</th><th>Payee</th><th></th></tr></thead>
+    <thead><tr><th>Description contains</th><th>Account</th><th>Line item</th><th>Fundraiser</th><th>Payee</th><th></th></tr></thead>
     <tbody>
-    {% for (r, acct, li) in rules %}
+    {% for (r, acct, li, fr) in rules %}
       <tr>
         <td><code>{{ r.pattern }}</code></td>
         <td>{{ acct }}</td>
         <td>{{ li }}</td>
+        <td>{{ fr }}</td>
         <td>{{ r.payee }}</td>
         <td>{% if layout.can_edit %}<form method="post" action="/rules/{{ r.id }}/delete"><button class="danger small">Delete</button></form>{% endif %}</td>
       </tr>
     {% endfor %}
-    {% if rules.is_empty() %}<tr><td colspan="5" class="muted">No rules yet.</td></tr>{% endif %}
+    {% if rules.is_empty() %}<tr><td colspan="6" class="muted">No rules yet.</td></tr>{% endif %}
     </tbody>
   </table>
 </div>
@@ -46,6 +47,17 @@
     </div>
     <div class="field"><label for="payee">Set payee to</label><input type="text" id="payee" name="payee" placeholder="optional"></div>
   </div>
+  {% if !fundraisers.is_empty() %}
+  <div class="fields">
+    <div class="field"><label for="fundraiser_id">Set fundraiser to</label>
+      <select id="fundraiser_id" name="fundraiser_id">
+        <option value="">No fundraiser</option>
+        {% for f in fundraisers %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+      </select>
+      <div class="hint">Only with a general line item.</div>
+    </div>
+  </div>
+  {% endif %}
   <button>Add rule</button>
 </form>
 {% endif %}

@@ -44,6 +44,8 @@ struct Tx<'a> {
     receipt: bool,
     cleared: Option<bool>,
     event: Option<i64>,
+    /// The fundraiser of every part.
+    fundraiser: Option<i64>,
 }
 
 impl Demo<'_> {
@@ -94,12 +96,15 @@ impl Demo<'_> {
         .last_insert_rowid();
         for (name, part) in lines {
             let li = self.line(fund, name).await?;
-            sqlx::query("INSERT INTO allocations (transaction_id, line_item_id, amount_cents) VALUES (?, ?, ?)")
-                .bind(id)
-                .bind(li)
-                .bind((part * 100.0).round() as i64)
-                .execute(self.pool)
-                .await?;
+            sqlx::query(
+                "INSERT INTO allocations (transaction_id, line_item_id, amount_cents, fundraiser_id) VALUES (?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(li)
+            .bind((part * 100.0).round() as i64)
+            .bind(o.fundraiser)
+            .execute(self.pool)
+            .await?;
         }
         if o.receipt {
             let label = if o.payee.is_empty() { desc } else { o.payee };
@@ -122,6 +127,37 @@ impl Demo<'_> {
             .await?;
         }
         Ok(id)
+    }
+
+    async fn fundraiser(&self, name: &str, description: &str, goals: &[(i64, f64)]) -> anyhow::Result<i64> {
+        let id = sqlx::query("INSERT INTO fundraisers (name, description, created_at) VALUES (?, ?, ?)")
+            .bind(name)
+            .bind(description)
+            .bind(db::now())
+            .execute(self.pool)
+            .await?
+            .last_insert_rowid();
+        for (fy, goal) in goals {
+            sqlx::query("INSERT INTO fundraiser_goals (fundraiser_id, fiscal_year_id, goal_cents) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(fy)
+                .bind((goal * 100.0).round() as i64)
+                .execute(self.pool)
+                .await?;
+        }
+        Ok(id)
+    }
+
+    /// Gives one part of a split transaction its fundraiser.
+    async fn part_fundraiser(&self, tx: i64, line: &str, fundraiser: i64) -> anyhow::Result<()> {
+        let li = self.line("general", line).await?;
+        sqlx::query("UPDATE allocations SET fundraiser_id = ? WHERE transaction_id = ? AND line_item_id = ?")
+            .bind(fundraiser)
+            .bind(tx)
+            .bind(li)
+            .execute(self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn budget(&self, fy: i64, fund: &str, amounts: &[(&str, f64)]) -> anyhow::Result<()> {
@@ -274,6 +310,38 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
     demo.budget(this.id, "general", &this_general).await?;
     demo.budget(this.id, "gaming", gaming_budget).await?;
 
+    // Fundraisers run every year. Each has a goal for each year.
+    let hot_lunch = demo
+        .fundraiser(
+            "Hot lunch",
+            "Munch A Lunch orders, September to June. The PAC keeps the difference between the price and the caterer's bill.",
+            &[(last.id, 2500.0), (this.id, 2800.0)],
+        )
+        .await?;
+    let purdys = demo
+        .fundraiser(
+            "Purdy's chocolates",
+            "Holiday chocolate orders in November. Purdy's gives the PAC 25% of sales.",
+            &[(last.id, 750.0), (this.id, 900.0)],
+        )
+        .await?;
+    let fall_fair = demo
+        .fundraiser(
+            "Fall fair",
+            "Games, a bake sale, and a barbecue on the first Saturday in October.",
+            &[(last.id, 1200.0), (this.id, 1400.0)],
+        )
+        .await?;
+    let movie_night =
+        demo.fundraiser("Movie night", "A family movie in the gym, with popcorn.", &[(last.id, 400.0)]).await?;
+    let carnival = demo
+        .fundraiser(
+            "Spring carnival",
+            "Rides, games, and food on the field in May.",
+            &[(last.id, 1500.0), (this.id, 1600.0)],
+        )
+        .await?;
+
     let g = general;
     let fee = |m: &'static str| (m, "SERVICE CHARGE");
     // Monthly bank fees, both years.
@@ -306,7 +374,7 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
             "DEPOSIT MUNCH A LUNCH PAYOUT",
             sales,
             &[("Fundraising – Hot lunch", sales)],
-            Tx { payee: "Munch A Lunch", ..Default::default() },
+            Tx { payee: "Munch A Lunch", fundraiser: Some(hot_lunch), ..Default::default() },
         )
         .await?;
         demo.tx(
@@ -316,7 +384,13 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
             "BILL PAYMENT FRESH KITCHEN CATERING",
             -cost,
             &[("Hot lunch costs", -cost)],
-            Tx { payee: "Fresh Kitchen Catering", purpose: "Hot lunch food", receipt: true, ..Default::default() },
+            Tx {
+                payee: "Fresh Kitchen Catering",
+                purpose: "Hot lunch food",
+                receipt: true,
+                fundraiser: Some(hot_lunch),
+                ..Default::default()
+            },
         )
         .await?;
     }
@@ -476,8 +550,18 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
         ("2026-06-30", "INTEREST", 4.40, "Interest", "", "", false),
         ("2026-09-17", "BILL PAYMENT BCCPAC", -450.00, "Insurance", "BCCPAC", "Directors and officers insurance", true),
     ];
+    // The event fundraisers' money in and costs, by date.
+    let events = [
+        ("2025-10-03", fall_fair),
+        ("2025-10-05", fall_fair),
+        ("2026-02-09", movie_night),
+        ("2026-02-10", movie_night),
+    ];
+    let event_of = |date: &str| events.iter().find(|(d, _)| *d == date).map(|(_, f)| *f);
     let mut reimbursed = Vec::new();
     for (date, desc, amount, line, payee, purpose, receipt) in general_txs {
+        let fundraiser =
+            event_of(date).or((*payee == "Spring Carnival" || *payee == "Party Rentals Ltd").then_some(carnival));
         let id = demo
             .tx(
                 g,
@@ -486,13 +570,88 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
                 desc,
                 *amount,
                 &[(line, *amount)],
-                Tx { payee, purpose, receipt: *receipt, ..Default::default() },
+                Tx { payee, purpose, receipt: *receipt, fundraiser, ..Default::default() },
             )
             .await?;
         if line.starts_with("Gaming-eligible") {
             reimbursed.push(id);
         }
     }
+    // Purdy's: last year's orders and bill; this year's first orders, before the bill.
+    let purdy =
+        |payee, purpose, receipt| Tx { payee, purpose, receipt, fundraiser: Some(purdys), ..Default::default() };
+    demo.tx(
+        g,
+        "general",
+        "2025-11-24",
+        "DEPOSIT PURDYS ORDERS",
+        3240.00,
+        &[("Fundraising – Events", 3240.00)],
+        purdy("Purdy's orders", "Holiday chocolate orders", false),
+    )
+    .await?;
+    demo.tx(
+        g,
+        "general",
+        "2025-12-01",
+        "BILL PAYMENT PURDYS CHOCOLATIER",
+        -2430.00,
+        &[("Fundraising event costs", -2430.00)],
+        purdy("Purdy's Chocolatier", "Holiday chocolate order", true),
+    )
+    .await?;
+    demo.tx(
+        g,
+        "general",
+        "2026-10-09",
+        "E-TRANSFER RECEIVED PURDYS ORDERS",
+        640.00,
+        &[("Fundraising – Events", 640.00)],
+        purdy("Purdy's orders", "Holiday chocolate orders, first week", false),
+    )
+    .await?;
+    // One Costco trip for the carnival and the staff room: only one part is the carnival's.
+    let costco = demo
+        .tx(
+            g,
+            "general",
+            "2026-05-12",
+            "POS PURCHASE COSTCO WHOLESALE #54",
+            -326.85,
+            &[("Fundraising event costs", -214.60), ("Staff appreciation", -112.25)],
+            Tx {
+                payee: "Costco",
+                purpose: "Carnival snacks and staff room coffee",
+                receipt: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+    demo.part_fundraiser(costco, "Fundraising event costs", carnival).await?;
+    // This year's fall fair.
+    let fair =
+        |payee, purpose, receipt| Tx { payee, purpose, receipt, fundraiser: Some(fall_fair), ..Default::default() };
+    demo.tx(
+        g,
+        "general",
+        "2026-10-01",
+        "POS PURCHASE PARTY RENTALS LTD",
+        -365.00,
+        &[("Fundraising event costs", -365.00)],
+        fair("Party Rentals Ltd", "Fall fair bouncy castle", true),
+    )
+    .await?;
+    demo.tx(
+        g,
+        "general",
+        "2026-10-05",
+        "DEPOSIT FALL FAIR CASH",
+        1975.50,
+        &[("Fundraising – Events", 1975.50)],
+        fair("Fall Fair", "Fall fair proceeds", false),
+    )
+    .await?;
+
     // Not yet assigned to a line item.
     demo.tx(g, "general", "2026-09-28", "E-TRANSFER RECEIVED A PARENT", 75.00, &[], Tx::default()).await?;
     demo.tx(g, "general", "2026-10-03", "POS PURCHASE COSTCO WHOLESALE #54", -210.44, &[], Tx::default()).await?;
@@ -688,18 +847,23 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
             reference: "110",
             receipt: true,
             cleared: Some(false),
-            event: None,
+            ..Default::default()
         },
     )
     .await?;
 
-    for (pattern, line, fund) in
-        [("SERVICE CHARGE", "Bank fees", "general"), ("MUNCH A LUNCH", "Fundraising – Hot lunch", "general")]
-    {
-        let li = demo.line(fund, line).await?;
-        sqlx::query("INSERT INTO rules (pattern, line_item_id) VALUES (?, ?)")
+    for (pattern, line, fundraiser) in [
+        ("SERVICE CHARGE", "Bank fees", None),
+        ("MUNCH A LUNCH", "Fundraising – Hot lunch", Some(hot_lunch)),
+        ("FRESH KITCHEN", "Hot lunch costs", Some(hot_lunch)),
+        ("PURDYS ORDERS", "Fundraising – Events", Some(purdys)),
+        ("PURDYS CHOCOLATIER", "Fundraising event costs", Some(purdys)),
+    ] {
+        let li = demo.line("general", line).await?;
+        sqlx::query("INSERT INTO rules (pattern, line_item_id, fundraiser_id) VALUES (?, ?, ?)")
             .bind(pattern)
             .bind(li)
+            .bind(fundraiser)
             .execute(pool)
             .await?;
     }
@@ -744,9 +908,11 @@ pub async fn reset(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Res
         "attachments",
         "rules",
         "budget_amounts",
+        "fundraiser_goals",
         "transactions",
         "import_batches",
         "gaming_events",
+        "fundraisers",
         "line_items",
         "fiscal_years",
         "accounts",

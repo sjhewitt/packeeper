@@ -23,6 +23,10 @@ pub struct TxRow {
     pub receipt_required: bool,
     /// A licensed gaming event line item with no event chosen.
     pub needs_event: bool,
+    /// The fundraisers of the transaction's parts, joined with "; ".
+    pub fundraiser_names: Option<String>,
+    /// The fundraiser of the only (or first) part.
+    pub single_fundraiser_id: Option<i64>,
 }
 
 impl TxRow {
@@ -51,6 +55,15 @@ impl TxRow {
     pub fn line_names(&self) -> &str {
         self.line_names.as_deref().unwrap_or("")
     }
+
+    pub fn fundraiser_names(&self) -> &str {
+        self.fundraiser_names.as_deref().unwrap_or("")
+    }
+
+    /// True when the transaction's only (or first) part belongs to fundraiser `id`.
+    pub fn is_fundraiser(&self, id: &i64) -> bool {
+        self.single_fundraiser_id == Some(*id)
+    }
 }
 
 const TX_ROW_SELECT: &str = "
@@ -69,7 +82,10 @@ const TX_ROW_SELECT: &str = "
              AND NOT EXISTS (SELECT 1 FROM transactions r WHERE r.reimbursed_by_id = t.id) AS receipt_required,
            t.gaming_event_id IS NULL AND EXISTS (SELECT 1 FROM allocations al
               JOIN line_items li ON li.id = al.line_item_id
-              WHERE al.transaction_id = t.id AND li.gasr_line IN ('6', 'prize', 'event_expense')) AS needs_event
+              WHERE al.transaction_id = t.id AND li.gasr_line IN ('6', 'prize', 'event_expense')) AS needs_event,
+           (SELECT GROUP_CONCAT(f.name, '; ') FROM fundraisers f
+              WHERE f.id IN (SELECT fundraiser_id FROM allocations WHERE transaction_id = t.id)) AS fundraiser_names,
+           (SELECT fundraiser_id FROM allocations WHERE transaction_id = t.id ORDER BY id LIMIT 1) AS single_fundraiser_id
     FROM transactions t JOIN accounts a ON a.id = t.account_id";
 
 #[derive(Debug, Clone, Default)]
@@ -84,6 +100,7 @@ pub struct Filter {
     pub search: Option<String>,
     pub fund: Option<String>,
     pub gaming_event_id: Option<i64>,
+    pub fundraiser_id: Option<i64>,
     pub limit: Option<i64>,
 }
 
@@ -115,6 +132,9 @@ pub async fn list(pool: &SqlitePool, f: &Filter) -> anyhow::Result<Vec<TxRow>> {
     }
     if let Some(id) = f.gaming_event_id {
         q.push(" AND gaming_event_id = ").push_bind(id);
+    }
+    if let Some(id) = f.fundraiser_id {
+        q.push(" AND id IN (SELECT transaction_id FROM allocations WHERE fundraiser_id = ").push_bind(id).push(")");
     }
     if let Some(s) = f.search.as_ref().filter(|s| !s.trim().is_empty()) {
         let like = format!("%{}%", s.trim());
@@ -162,17 +182,36 @@ pub async fn attachments(pool: &SqlitePool, tx_id: i64) -> anyhow::Result<Vec<At
         .await?)
 }
 
+/// One part of a transaction: a line item, an amount with the sign of the
+/// transaction, a memo, and the fundraiser it belongs to, if any.
+#[derive(Debug, Clone, Default)]
+pub struct Part {
+    pub line_item_id: i64,
+    pub amount_cents: i64,
+    pub memo: String,
+    pub fundraiser_id: Option<i64>,
+}
+
+impl Part {
+    /// The whole transaction on one line item.
+    pub fn whole(line_item_id: i64, tx: &Transaction) -> Part {
+        Part { line_item_id, amount_cents: tx.amount_cents, ..Default::default() }
+    }
+}
+
 /// Replaces the allocations of a transaction. Every line item must be in the
 /// account's fund, and the parts must have the sign of the transaction.
+/// Fundraisers are for general-account transactions only.
 pub async fn set_allocations(
     pool: &SqlitePool,
     tx: &Transaction,
     account: &Account,
-    parts: &[(i64, i64, String)],
+    parts: &[Part],
 ) -> anyhow::Result<()> {
     let items: HashMap<i64, LineItem> = crate::db::line_items(pool).await?.into_iter().map(|li| (li.id, li)).collect();
-    for (line_item_id, amount, _) in parts {
-        let li = items.get(line_item_id).ok_or_else(|| anyhow::anyhow!("unknown line item {line_item_id}"))?;
+    for part in parts {
+        let li =
+            items.get(&part.line_item_id).ok_or_else(|| anyhow::anyhow!("unknown line item {}", part.line_item_id))?;
         if li.fund() != account.fund() {
             anyhow::bail!(
                 "\"{}\" is a {} line item. {} is a {} account. Gaming funds and general funds must stay apart.",
@@ -182,11 +221,19 @@ pub async fn set_allocations(
                 account.fund()
             );
         }
-        if *amount != 0 && (*amount < 0) != (tx.amount_cents < 0) {
+        if part.amount_cents != 0 && (part.amount_cents < 0) != (tx.amount_cents < 0) {
             anyhow::bail!("each part must have the same sign as the transaction");
         }
+        if let Some(fid) = part.fundraiser_id {
+            if account.is_gaming() {
+                anyhow::bail!(
+                    "Fundraisers are for general-account money. Record a licensed raffle or bingo as a licensed gaming event."
+                );
+            }
+            crate::db::fundraiser(pool, fid).await?.ok_or_else(|| anyhow::anyhow!("unknown fundraiser {fid}"))?;
+        }
     }
-    let total: i64 = parts.iter().map(|(_, a, _)| a).sum();
+    let total: i64 = parts.iter().map(|p| p.amount_cents).sum();
     if total.abs() > tx.amount_cents.abs() {
         anyhow::bail!(
             "the parts add up to {}, which is more than the transaction amount {}",
@@ -196,14 +243,17 @@ pub async fn set_allocations(
     }
     let mut dbtx = pool.begin().await?;
     sqlx::query("DELETE FROM allocations WHERE transaction_id = ?").bind(tx.id).execute(&mut *dbtx).await?;
-    for (line_item_id, amount, memo) in parts.iter().filter(|(_, a, _)| *a != 0) {
-        sqlx::query("INSERT INTO allocations (transaction_id, line_item_id, amount_cents, memo) VALUES (?, ?, ?, ?)")
-            .bind(tx.id)
-            .bind(line_item_id)
-            .bind(amount)
-            .bind(memo)
-            .execute(&mut *dbtx)
-            .await?;
+    for part in parts.iter().filter(|p| p.amount_cents != 0) {
+        sqlx::query(
+            "INSERT INTO allocations (transaction_id, line_item_id, amount_cents, memo, fundraiser_id) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(tx.id)
+        .bind(part.line_item_id)
+        .bind(part.amount_cents)
+        .bind(&part.memo)
+        .bind(part.fundraiser_id)
+        .execute(&mut *dbtx)
+        .await?;
     }
     dbtx.commit().await?;
     Ok(())

@@ -251,12 +251,29 @@ pub struct Allocation {
     pub line_item_id: i64,
     pub amount_cents: i64,
     pub memo: String,
+    pub fundraiser_id: Option<i64>,
 }
 
 impl Allocation {
     pub fn amount(&self) -> Money {
         Money(self.amount_cents)
     }
+
+    pub fn is_fundraiser(&self, id: &i64) -> bool {
+        self.fundraiser_id == Some(*id)
+    }
+}
+
+/// A fundraiser that comes back every year, such as Purdy's chocolates.
+/// Parts of general-account transactions belong to it; see `reports::fundraisers`.
+#[derive(Debug, Clone, FromRow)]
+pub struct Fundraiser {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub active: bool,
+    #[allow(dead_code)]
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -305,6 +322,7 @@ pub struct Rule {
     pub account_id: Option<i64>,
     pub line_item_id: i64,
     pub payee: String,
+    pub fundraiser_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, FromRow)]

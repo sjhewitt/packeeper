@@ -1,5 +1,6 @@
 //! Report data. The web pages and the PDFs use the same numbers.
 
+pub mod fundraisers;
 pub mod gaming;
 pub mod pdf;
 pub mod proposal;
@@ -423,7 +424,7 @@ mod tests {
     use super::*;
     use crate::fiscal;
 
-    async fn demo_db() -> (SqlitePool, std::path::PathBuf) {
+    pub(crate) async fn demo_db() -> (SqlitePool, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("pac-test-{}-{}", std::process::id(), rand_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
         let pool = db::open(&dir).await.unwrap();
@@ -457,7 +458,8 @@ mod tests {
             assert!(f.balances(), "{} does not balance for the year", f.title());
         }
         assert_eq!(year[0].year_opening, Money(841237));
-        assert_eq!(year[0].closing, Money(1041535));
+        // Includes Purdy's (+3,240.00 - 2,430.00) and a split Costco purchase (-326.85).
+        assert_eq!(year[0].closing, Money(1089850));
         // 5,484.96 from grants and interest, plus the raffle: 1,850.00 - 600.00 - 85.50.
         assert_eq!(year[1].closing, Money(664946));
 

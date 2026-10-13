@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PAC Keeper</title>
-<meta name="description" content="Bookkeeping for BC Parent Advisory Committee treasurers. Import bank statements, keep receipts, track the gaming grant, and print the monthly, AGM, and Gaming Account Summary reports.">
+<meta name="description" content="Bookkeeping for BC Parent Advisory Committee treasurers. Import bank statements, keep receipts, track fundraisers and the gaming grant, and print the monthly, AGM, and Gaming Account Summary reports.">
 <link rel="icon" href="img/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -245,7 +245,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
       <div class="hero-copy">
         <p class="eyebrow">For BC Parent Advisory Committee treasurers</p>
         <h1>The PAC's books, <span class="kept">kept.<svg viewBox="0 0 60 60" aria-hidden="true"><path d="M8 32 L24 47 L54 10"/></svg></span></h1>
-        <p class="lede">Import the bank statements, attach the receipts, and assign each transaction to the budget. PAC Keeper then produces the monthly treasurer's report, the annual report for the AGM, and the Gaming Account Summary Report worksheet.</p>
+        <p class="lede">Import the bank statements, attach the receipts, and assign each transaction to the budget. PAC Keeper tracks every fundraiser, and it produces the monthly treasurer's report, the annual report for the AGM, and the Gaming Account Summary Report worksheet.</p>
         <div class="cta">
           <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
           <a class="button ghost" href="https://app.packeeper.ca/signup">Request an account</a>
@@ -254,7 +254,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
       </div>
       <figure class="shot" style="margin:0">
         <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
-        <img src="img/dashboard.png" width="1600" height="1075" alt="The PAC Keeper dashboard: balances for the general and gaming accounts, budget against actual for each fund, gaming grant spending deadlines, and recent transactions.">
+        <img src="img/dashboard.png" width="1600" height="1075" alt="The PAC Keeper dashboard: balances for the general and gaming accounts, budget against actual for each fund, and each fundraiser's progress toward its goal.">
       </figure>
     </div>
   </div>
@@ -269,14 +269,14 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         </div>
         <ol class="steps">
           <li><h3>Import the bank file</h3><p>Download the activity from online banking and upload it. OFX, QFX, QBO, and CSV work. Rows you already have are skipped, and a cheque you wrote by hand is matched when it clears.</p></li>
-          <li><h3>Assign each transaction</h3><p>Pick a budget line from the list. Split a Costco run across hot lunch and staff appreciation. Rules handle the repeats, such as bank fees.</p></li>
+          <li><h3>Assign each transaction</h3><p>Pick a budget line from the list, and the fundraiser if it has one. Split a Costco run across hot lunch and staff appreciation. Rules handle the repeats, such as bank fees.</p></li>
           <li><h3>Attach the receipts</h3><p>Drop in a photo or a PDF. Anything still missing a receipt is flagged on the dashboard and in the report.</p></li>
           <li><h3>Print the report</h3><p>Choose the month, and PAC Keeper makes the treasurer's report: balances checked against the bank, budget against actual, and every transaction.</p></li>
         </ol>
       </div>
       <figure class="shot" style="margin:0">
         <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
-        <img src="img/transactions.png" width="1600" height="950" alt="The transactions list. Each row has a line item picker, receipt status, and tags for the gaming account and for cheques not yet cleared.">
+        <img src="img/transactions.png" width="1600" height="950" alt="The transactions list. Each row has a line item picker, a fundraiser picker, receipt status, and tags for the gaming account and for cheques not yet cleared.">
       </figure>
     </div>
   </section>
@@ -323,12 +323,12 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         <div class="report">
           <img src="img/monthly-page.png" width="773" height="1000" alt="A monthly treasurer's report: key figures, bank accounts, and the general fund budget against actual.">
           <h3>Monthly treasurer's report</h3>
-          <p>Account balances checked against the bank, budget against actual for the month and the year to date, every transaction, and the items still to resolve.</p>
+          <p>Account balances checked against the bank, budget against actual for the month and the year to date, fundraisers, every transaction, and the items still to resolve.</p>
         </div>
         <div class="report">
           <img src="img/annual-page.png" width="773" height="1000" alt="An annual financial report: fund balances for the year and budget against actual with variances.">
           <h3>Annual report for the AGM</h3>
-          <p>Opening and closing balance of each fund, budget against actual with variances, monthly totals, the gaming summary, your notes, and signature lines.</p>
+          <p>Opening and closing balance of each fund, budget against actual with variances, each fundraiser's net against its goal, monthly totals, the gaming summary, your notes, and signature lines.</p>
         </div>
         <div class="report">
           <img src="img/gasr-page.png" width="773" height="1000" alt="The Gaming Account Summary worksheet, with lines numbered as on the provincial form.">
@@ -375,6 +375,22 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
           <img src="img/event.png" width="1600" height="700" alt="A licensed ticket raffle: revenue, prizes, expenses, and net proceeds, with its three transactions.">
         </figure>
       </div>
+      <div class="feature">
+        <div class="copy">
+          <p class="eyebrow">Fundraisers</p>
+          <h2>Hot lunch, chocolates, and the fall fair, year after year.</h2>
+          <p class="lede">Add each fundraiser once. Tag its sales and its bills, and see what it raised this year against its goal and against last year.</p>
+          <ul class="facts">
+            <li>Split a deposit or a Costco run, and give each part its own fundraiser.</li>
+            <li>Rules tag the hot lunch payout and the supplier's bill when you import.</li>
+            <li>Print a status report for one fundraiser. The monthly and AGM reports include a fundraisers table.</li>
+          </ul>
+        </div>
+        <figure class="shot" style="margin:0">
+          <div class="bar" aria-hidden="true"><span></span><span></span><span></span></div>
+          <img src="img/fundraisers.png" width="1600" height="1035" alt="The fundraisers page: income, costs, and net for each fundraiser this year, with progress toward each goal and last year's net.">
+        </figure>
+      </div>
     </div>
   </section>
 
@@ -391,7 +407,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         </div>
         <div>
           <h3>Hosted, or on your computer</h3>
-          <p>With a hosted account, the treasurer edits and invites the chair and signing officers to view. A new treasurer is one invitation away. Or run PAC Keeper on the treasurer's laptop.</p>
+          <p>With a hosted account, the treasurer edits and invites the chair and signing officers to view. A new treasurer is one invitation away. Or install the PAC Keeper app on the treasurer's Mac or Windows computer.</p>
         </div>
         <div>
           <h3>Any fiscal year</h3>
@@ -426,11 +442,15 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
         </details>
         <details>
           <summary>Where is our data kept?</summary>
-          <p>With a hosted account, your PAC's records sit in their own database on the PAC Keeper server, apart from every other PAC. You can also run PAC Keeper on your own computer. Either way, you can download all your records at any time.</p>
+          <p>With a hosted account, your PAC's records sit in their own database on the PAC Keeper server, apart from every other PAC. With the Mac or Windows app, the records stay on the treasurer's computer. Either way, you can download all your records at any time.</p>
+        </details>
+        <details>
+          <summary>Is there an app for Mac or Windows?</summary>
+          <p>Yes. Install PAC Keeper on the treasurer's computer. It keeps the records on that computer, works without an internet connection, and has no account to set up. It is for one person. To share the books with the executive, use a hosted account.</p>
         </details>
         <details>
           <summary>What can I do in the demo?</summary>
-          <p>Everything except upload files: assign transactions, split them, edit the budget, record a raffle, import a sample statement, and print every report. The demo PAC is made up. Other visitors see your changes, and the data resets every hour.</p>
+          <p>Everything except upload files: assign transactions, split them, tag fundraisers and set their goals, edit the budget, record a raffle, import a sample statement, and print every report. The demo PAC is made up. Other visitors see your changes, and the data resets every hour.</p>
         </details>
       </div>
     </div>
@@ -440,7 +460,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
     <div class="wrap">
       <div class="closing">
         <h2>See a year of PAC books in two minutes.</h2>
-        <p class="lede">The demo holds a made-up PAC with a year and a half of hot lunches, field trips, a raffle, and a gaming grant. Open the gaming report first.</p>
+        <p class="lede">The demo holds a made-up PAC with a year and a half of hot lunches, chocolate orders, field trips, a raffle, and a gaming grant. Open the gaming report first.</p>
         <div class="cta">
           <a class="button" href="https://demo.packeeper.ca" target="_blank" rel="noopener">Try the demo</a>
           <span class="login-note">Sign in as <code>demo</code> / <code>packeeper</code></span>

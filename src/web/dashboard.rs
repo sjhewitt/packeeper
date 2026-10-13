@@ -7,6 +7,7 @@ use crate::fiscal;
 use crate::ledger::{self, Filter, TxRow};
 use crate::models::FiscalYear;
 use crate::money::Money;
+use crate::reports::fundraisers::{self, Status};
 use crate::reports::gaming::{self, GrantRow};
 use crate::reports::{self, AccountSummary, FundSummary};
 
@@ -21,6 +22,8 @@ struct Page {
     grants: Vec<GrantRow>,
     gasr_due: Option<(String, chrono::NaiveDate)>,
     has_gaming: bool,
+    /// Each fundraiser's year to date.
+    fundraising: Vec<Status>,
 }
 
 pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
@@ -31,6 +34,7 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
     let funds = reports::fund_summaries(pool, &fy, fy.start_date, today).await?;
     let recent = ledger::list(pool, &Filter { limit: Some(12), ..Default::default() }).await?;
     let has_gaming = accounts.iter().any(|a| a.account.is_gaming());
+    let fundraising = fundraisers::year(pool, &fy, None, today.min(fy.end_date)).await?;
 
     let gaming_balance: Money = accounts.iter().filter(|a| a.account.is_gaming()).map(|a| a.closing).sum();
     let grants = if has_gaming {
@@ -60,5 +64,6 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
         grants,
         gasr_due,
         has_gaming,
+        fundraising,
     })
 }

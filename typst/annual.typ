@@ -26,6 +26,18 @@
   )
 ]
 
+#if data.fundraisers.len() > 0 [
+  = Fundraisers
+  #let n = data.fundraiser_header.len()
+  #fin-table(
+    columns: (2.2fr,) + (1fr,) * (n - 1),
+    align: "l" + "r" * (n - 1),
+    header: data.fundraiser_header,
+    rows: data.fundraisers,
+  )
+  #text(9pt, fill: muted)[Net is income less costs.#if n > 5 [ "Year before" is the net in the previous fiscal year.] The same money is also in the line items above.]
+]
+
 = Bank accounts at #data.year_end
 
 #fin-table(

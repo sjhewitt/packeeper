@@ -73,6 +73,32 @@
   {% endif %}{% endfor %}
 </div>
 
+{% if !fundraising.is_empty() %}
+<div class="panel">
+  <h2>Fundraisers <span class="muted small">year to date</span></h2>
+  <table>
+    <thead><tr><th>Fundraiser</th><th class="num">Income</th><th class="num">Costs</th><th class="num">Net</th><th style="width:30%">Goal</th></tr></thead>
+    <tbody>
+    {% for r in fundraising %}
+      <tr>
+        <td><a href="/fundraisers/{{ r.fundraiser.id }}">{{ r.fundraiser.name }}</a></td>
+        <td class="num">{{ r.totals.income }}</td>
+        <td class="num">{{ r.totals.costs }}</td>
+        <td class="num {% if r.net().is_negative() %}neg{% endif %}">{{ r.net() }}</td>
+        <td>
+          {% if let Some(g) = r.goal %}
+          <div class="bar"><span style="width: {{ r.bar() }}%; {% if r.reached() %}background: var(--good);{% endif %}"></span></div>
+          <span class="small {% if r.reached() %}pos{% else %}muted{% endif %}">{% if let Some(p) = r.percent() %}{{ p }}% of {% endif %}{{ g }}</span>
+          {% else %}<span class="small muted">no goal</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="small"><a href="/fundraisers">All fundraisers</a></p>
+</div>
+{% endif %}
+
 {% if has_gaming && !grants.is_empty() %}
 <div class="panel">
   <h2>Gaming grant spending deadlines</h2>

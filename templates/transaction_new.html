@@ -38,6 +38,15 @@
       </select>
     </div>
   </div>
+  {% if !fundraisers.is_empty() %}
+  <div class="field" id="fundraiser-field"><label for="fundraiser_id">Fundraiser</label>
+    <select id="fundraiser_id" name="fundraiser_id">
+      <option value="">No fundraiser</option>
+      {% for f in fundraisers %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+    </select>
+    <div class="hint">For money in or out of a fundraiser, such as Purdy's orders or the hot lunch bill. Choose a line item too.</div>
+  </div>
+  {% endif %}
   {% if !events.is_empty() %}
   <div class="field" id="event-field"><label for="gaming_event_id">Licensed gaming event</label>
     <select id="gaming_event_id" name="gaming_event_id">
@@ -66,6 +75,11 @@
     if (ev) {
       ev.hidden = fund !== 'gaming';
       if (ev.hidden) ev.querySelector('select').value = '';
+    }
+    var fr = document.getElementById('fundraiser-field');
+    if (fr) {
+      fr.hidden = fund === 'gaming';
+      if (fr.hidden) fr.querySelector('select').value = '';
     }
   }
   filterLines();

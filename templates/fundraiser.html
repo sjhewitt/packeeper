@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/fundraisers?fy={{ fy.id }}">Fundraisers</a> ›</p>
+    <h1>{{ f.name }} {% if !f.active %}<span class="tag muted">inactive</span>{% endif %}</h1>
+    <p class="sub">{% if f.description.is_empty() %}Fiscal year {{ fy.label }}{% else %}{{ f.description }}{% endif %}</p>
+  </div>
+  <div class="actions">
+    <form method="get" action="/fundraisers/{{ f.id }}">
+      <select name="fy" onchange="this.form.submit()" aria-label="Fiscal year">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </form>
+    <a class="button secondary" href="/reports/fundraiser.pdf?id={{ f.id }}&amp;fy={{ fy.id }}" target="{{ layout.new_tab() }}">Status report PDF</a>
+    {% if layout.can_edit && !used %}
+    <form method="post" action="/fundraisers/{{ f.id }}/delete" data-confirm="Delete this fundraiser?"><button class="danger small">Delete</button></form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid cards">
+  <div class="card general"><div class="label">Income</div><div class="value">{{ status.totals.income }}</div><div class="note">{{ fy.label }}</div></div>
+  <div class="card"><div class="label">Costs</div><div class="value">{{ status.totals.costs }}</div><div class="note">{{ fy.label }}</div></div>
+  <div class="card {% if status.net().is_negative() %}alert{% else %}general{% endif %}"><div class="label">Net raised</div><div class="value">{{ status.net() }}</div>
+    <div class="note">{% if let Some(n) = status.last_year_net() %}{{ n }} the year before{% else %}{{ status.totals.parts }} transaction part(s){% endif %}</div></div>
+  <div class="card {% if status.reached() %}general{% endif %}"><div class="label">Goal</div>
+    {% if let Some(g) = status.goal %}
+    <div class="value">{{ g }}</div>
+    <div class="bar" style="margin: 6px 0 4px;"><span style="width: {{ status.bar() }}%; {% if status.reached() %}background: var(--good);{% endif %}"></span></div>
+    <div class="note">{% if let Some(p) = status.percent() %}{{ p }}%{% endif %}{% if let Some(m) = status.to_go() %} · {{ m }} to go{% else %} · goal reached{% endif %}</div>
+    {% else %}
+    <div class="value muted">–</div><div class="note">No goal for {{ fy.label }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if !checks.is_empty() %}
+<ul class="check-list" style="margin-bottom: 18px;">
+  {% for c in checks %}<li class="warning">{{ c }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<div class="grid two">
+  <div class="panel">
+    <h2>By line item</h2>
+    {% if by_line.is_empty() %}
+    <p class="muted">Nothing in {{ fy.label }} yet.</p>
+    {% else %}
+    <table>
+      <thead><tr><th>Line item</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+      {% for (name, amount) in by_line %}
+        <tr><td>{{ name }}</td><td class="num {% if amount.is_negative() %}neg{% endif %}">{{ amount }}</td></tr>
+      {% endfor %}
+        <tr class="total"><td>Net</td><td class="num">{{ status.net() }}</td></tr>
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  <div class="panel">
+    <h2>Goal for {{ fy.label }}</h2>
+    {% if layout.can_edit %}
+    <form method="post" action="/fundraisers/{{ f.id }}/goal">
+      <input type="hidden" name="fy" value="{{ fy.id }}">
+      <div class="field"><label for="goal">Net amount to raise</label><input type="text" class="amount" id="goal" name="goal" value="{{ self.goal_input() }}" placeholder="0.00">
+        <div class="hint">Income less costs. Leave it blank for no goal. Each year has its own goal.</div></div>
+      <button class="secondary">Save goal</button>
+    </form>
+    {% else %}
+    <p>{% if let Some(g) = status.goal %}{{ g }}{% else %}No goal.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Transactions in {{ fy.label }}</h2></div>
+  <table>
+    <thead><tr><th>Date</th><th>Description</th><th>Line item</th><th class="num">Amount</th><th>Receipt</th></tr></thead>
+    <tbody>
+    {% for p in parts %}
+      <tr {% if p.needs_receipt %}class="flagged"{% endif %}>
+        <td class="nowrap">{{ p.date.format("%b %-d, %Y") }}</td>
+        <td class="desc">
+          <a href="/transactions/{{ p.transaction_id }}">{{ p.name }}</a>
+          {% if !p.purpose.is_empty() %}<span class="muted small"> · {{ p.purpose }}</span>{% endif %}
+          <span class="bank">{{ p.account_name }}{% if p.split %} · part of a split{% endif %}{% if !p.memo.is_empty() %} · {{ p.memo }}{% endif %}</span>
+          {% if !p.cleared %}<span class="tag muted">not cleared</span>{% endif %}
+        </td>
+        <td>{{ p.line_item }}</td>
+        <td class="num {% if p.amount().is_negative() %}neg{% endif %}">{{ p.amount() }}</td>
+        <td class="nowrap">{% if p.receipts > 0 %}<span class="tag good">rcpt</span>{% else if p.needs_receipt %}<span class="tag bad">no rcpt</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if parts.is_empty() %}<tr><td colspan="5" class="muted" style="padding: 18px;">No transactions in {{ fy.label }}. Open a general-account transaction and choose this fundraiser beside the line item.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel" style="padding: 0;">
+  <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Year by year</h2></div>
+  <table>
+    <thead><tr><th>Fiscal year</th><th class="num">Income</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Goal</th></tr></thead>
+    <tbody>
+    {% for (y, t, goal) in history %}
+      <tr>
+        <td><a href="/fundraisers/{{ f.id }}?fy={{ y.id }}">{{ y.label }}</a>{% if y.id == fy.id %} <span class="tag">shown</span>{% endif %}</td>
+        <td class="num">{{ t.income }}</td>
+        <td class="num">{{ t.costs }}</td>
+        <td class="num {% if t.net().is_negative() %}neg{% endif %}">{{ t.net() }}</td>
+        <td class="num">{% if let Some(g) = goal %}{{ g }}{% else %}<span class="muted">–</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if history.is_empty() %}<tr><td colspan="5" class="muted" style="padding: 18px;">No years with transactions or goals yet.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<form class="panel" method="post" action="/fundraisers/{{ f.id }}" style="max-width: 760px;">
+  <h2>Details</h2>
+  <div class="field"><label for="name">Name</label><input type="text" id="name" name="name" value="{{ f.name }}" required></div>
+  <div class="field"><label for="description">Description</label><textarea id="description" name="description">{{ f.description }}</textarea></div>
+  <div class="field"><label class="check"><input type="checkbox" name="active" {% if f.active %}checked{% endif %}> Active</label>
+    <div class="hint">Turn this off for a fundraiser the PAC no longer runs. Its past years stay in the reports, and it leaves the lists for new transactions.</div></div>
+  {% if layout.can_edit %}<button>Save details</button>{% endif %}
+</form>
+{% endblock %}

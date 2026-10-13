@@ -133,6 +133,22 @@ pub async fn gaming_pdf(state: Ctx, Query(q): Query<FyQuery>) -> AppResult<Respo
     Ok(pdf_response(bytes, &format!("gaming-account-summary-{}.pdf", file_label(&fy))))
 }
 
+#[derive(Deserialize)]
+pub struct FundraiserQuery {
+    id: i64,
+    fy: Option<String>,
+}
+
+pub async fn fundraiser_pdf(state: Ctx, Query(q): Query<FundraiserQuery>) -> AppResult<Response> {
+    let f = crate::db::fundraiser(&state.pool, q.id).await?.ok_or(AppError::NotFound)?;
+    let fy = year(&state, &FyQuery { fy: q.fy }).await?;
+    let data = pdf::fundraiser(&state.pool, &f, &fy).await?;
+    let bytes = render_pdf(&state, "fundraiser.typ", data).await?;
+    let name: String =
+        f.name.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
+    Ok(pdf_response(bytes, &format!("fundraiser-{name}-{}.pdf", file_label(&fy))))
+}
+
 #[derive(Template)]
 #[template(path = "gaming.html")]
 struct GamingPage {

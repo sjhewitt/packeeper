@@ -5,6 +5,7 @@ mod auth;
 mod budget;
 mod dashboard;
 mod events;
+mod fundraisers;
 mod hosted;
 mod import;
 mod reports;
@@ -120,6 +121,7 @@ pub fn router(state: AppState) -> Router {
         .route("/transactions/new", get(transactions::new_form))
         .route("/transactions/{id}", get(transactions::detail).post(transactions::update))
         .route("/transactions/{id}/assign", post(transactions::assign))
+        .route("/transactions/{id}/fundraiser", post(transactions::set_fundraiser))
         .route("/transactions/{id}/allocations", post(transactions::set_allocations))
         .route("/transactions/{id}/attachments", post(transactions::upload))
         .route("/transactions/{id}/rule", post(transactions::make_rule))
@@ -148,6 +150,11 @@ pub fn router(state: AppState) -> Router {
         .route("/gaming/events", get(events::list).post(events::create))
         .route("/gaming/events/{id}", get(events::edit).post(events::update))
         .route("/gaming/events/{id}/delete", post(events::delete))
+        .route("/fundraisers", get(fundraisers::list).post(fundraisers::create))
+        .route("/fundraisers/{id}", get(fundraisers::detail).post(fundraisers::update))
+        .route("/fundraisers/{id}/goal", post(fundraisers::set_goal))
+        .route("/fundraisers/{id}/delete", post(fundraisers::delete))
+        .route("/reports/fundraiser.pdf", get(reports::fundraiser_pdf))
         .route("/settings", get(settings::page).post(settings::save))
         .route("/settings/backup.zip", get(settings::backup))
         .route("/accounts", get(accounts::list).post(accounts::create))

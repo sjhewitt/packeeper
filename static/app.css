@@ -121,6 +121,7 @@ td.desc .bank { color: var(--muted); font-size: 12px; display: block; overflow: 
 .tag.bad { background: var(--bad-soft); color: var(--bad); }
 .tag.good { background: var(--good-soft); color: var(--good); }
 .tag.muted { background: #eef0f2; color: var(--muted); }
+select.compact.fundraiser { max-width: 170px; }
 
 .bar { height: 6px; background: #e9edf1; border-radius: 3px; overflow: hidden; min-width: 80px; }
 .bar > span { display: block; height: 100%; background: var(--accent); }
@@ -200,6 +201,14 @@ dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
 
 .split-row { display: grid; grid-template-columns: minmax(0, 2.2fr) 110px minmax(0, 1fr) 36px; gap: 8px; margin-bottom: 8px; align-items: center; }
+/* With fundraisers, each part takes two lines: line item and amount, then fundraiser and memo. */
+.with-fundraisers .split-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 110px 36px; grid-template-areas: "line line amount remove" "fundraiser memo memo memo"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.with-fundraisers .split-row:first-child { grid-template-areas: "line line amount remove"; border-bottom: 0; padding-bottom: 0; }
+.with-fundraisers .s-line { grid-area: line; }
+.with-fundraisers .s-amount { grid-area: amount; }
+.with-fundraisers .s-fundraiser { grid-area: fundraiser; }
+.with-fundraisers .s-memo { grid-area: memo; }
+.with-fundraisers .s-remove { grid-area: remove; }
 
 details.help summary { cursor: pointer; color: var(--accent); font-weight: 600; }
 details.help ul { margin: 6px 0 0; padding-left: 20px; font-size: 14px; columns: 2; }
@@ -207,6 +216,17 @@ details.help ul { margin: 6px 0 0; padding-left: 20px; font-size: 14px; columns:
 .htmx-request.htmx-indicator, .htmx-request .htmx-indicator { opacity: 1; }
 .htmx-indicator { opacity: 0; transition: opacity .2s; }
 .saved { color: var(--good); font-size: 12px; }
+
+/* Narrow windows, such as a small desktop app window: keep every nav item in view. */
+@media (max-width: 1100px) {
+  header.top { gap: 14px; padding: 0 16px; }
+  header.top .org-name { display: none; }
+  header.top nav a { padding: 6px 8px; }
+}
+@media (max-width: 920px) {
+  header.top .brand span { display: none; }
+  header.top nav a { padding: 6px 7px; font-size: 14px; }
+}
 
 @media print {
   header.top, .no-print { display: none; }

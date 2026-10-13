@@ -11,7 +11,7 @@ use super::{
     AppError, AppResult, Ctx, Flash, Layout, UserExt, opt_id, redirect_err, redirect_ok, render, require_edit,
 };
 use crate::db;
-use crate::models::{Account, GASR_EXPENSE_LINES, GASR_INCOME_LINES, LineItem, Rule, valid_gasr_line};
+use crate::models::{Account, Fundraiser, GASR_EXPENSE_LINES, GASR_INCOME_LINES, LineItem, Rule, valid_gasr_line};
 use crate::money::{self, Money};
 
 #[derive(Template)]
@@ -323,15 +323,18 @@ pub async fn update_line_item(
 #[template(path = "rules.html")]
 struct RulesPage {
     layout: Layout,
-    rules: Vec<(Rule, String, String)>,
+    /// Each rule with its account, line item, and fundraiser names.
+    rules: Vec<(Rule, String, String, String)>,
     accounts: Vec<Account>,
     line_items: Vec<LineItem>,
+    fundraisers: Vec<Fundraiser>,
 }
 
 pub async fn rules(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {
     let rules: Vec<Rule> = sqlx::query_as("SELECT * FROM rules ORDER BY pattern").fetch_all(&state.pool).await?;
     let accounts = db::accounts(&state.pool).await?;
     let line_items = db::line_items(&state.pool).await?;
+    let fundraisers = db::fundraisers(&state.pool).await?;
     let rules = rules
         .into_iter()
         .map(|r| {
@@ -341,7 +344,12 @@ pub async fn rules(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> App
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| "Any account".into());
             let li = line_items.iter().find(|li| li.id == r.line_item_id).map(|li| li.name.clone()).unwrap_or_default();
-            (r, acct, li)
+            let fr = r
+                .fundraiser_id
+                .and_then(|id| fundraisers.iter().find(|f| f.id == id))
+                .map(|f| f.name.clone())
+                .unwrap_or_default();
+            (r, acct, li, fr)
         })
         .collect();
     render(RulesPage {
@@ -349,7 +357,25 @@ pub async fn rules(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> App
         rules,
         accounts,
         line_items,
+        fundraisers: fundraisers.into_iter().filter(|f| f.active).collect(),
     })
+}
+
+/// The fundraiser a new rule sets, if any. Fundraisers go with general-fund
+/// line items only.
+pub(super) async fn rule_fundraiser(
+    pool: &sqlx::SqlitePool,
+    line_item_id: i64,
+    raw: &Option<String>,
+) -> AppResult<Result<Option<i64>, String>> {
+    let Some(id) = opt_id(raw) else { return Ok(Ok(None)) };
+    db::fundraiser(pool, id).await?.ok_or(AppError::NotFound)?;
+    let li: LineItem =
+        sqlx::query_as("SELECT * FROM line_items WHERE id = ?").bind(line_item_id).fetch_one(pool).await?;
+    if li.fund() == crate::models::Fund::Gaming {
+        return Ok(Err("Fundraisers are for general-account money. Choose a general line item.".into()));
+    }
+    Ok(Ok(Some(id)))
 }
 
 #[derive(Deserialize)]
@@ -358,6 +384,7 @@ pub struct RuleForm {
     account_id: Option<String>,
     line_item_id: i64,
     payee: String,
+    fundraiser_id: Option<String>,
 }
 
 pub async fn create_rule(state: Ctx, user: UserExt, Form(f): Form<RuleForm>) -> AppResult<Response> {
@@ -374,11 +401,16 @@ pub async fn create_rule(state: Ctx, user: UserExt, Form(f): Form<RuleForm>) -> 
             return Ok(redirect_err("/rules", "The line item must be in the same fund as the account."));
         }
     }
-    sqlx::query("INSERT INTO rules (pattern, account_id, line_item_id, payee) VALUES (?, ?, ?, ?)")
+    let fundraiser_id = match rule_fundraiser(&state.pool, f.line_item_id, &f.fundraiser_id).await? {
+        Ok(id) => id,
+        Err(e) => return Ok(redirect_err("/rules", &e)),
+    };
+    sqlx::query("INSERT INTO rules (pattern, account_id, line_item_id, payee, fundraiser_id) VALUES (?, ?, ?, ?, ?)")
         .bind(f.pattern.trim())
         .bind(account_id)
         .bind(f.line_item_id)
         .bind(f.payee.trim())
+        .bind(fundraiser_id)
         .execute(&state.pool)
         .await?;
     let applied = super::transactions::apply_rules_to_uncategorized(&state.pool).await?;

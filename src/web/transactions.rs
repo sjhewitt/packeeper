@@ -15,8 +15,8 @@ use super::{
 };
 use crate::db;
 use crate::fiscal;
-use crate::ledger::{self, Filter, TxRow};
-use crate::models::{Account, Allocation, Attachment, FiscalYear, GamingEvent, LineItem, Transaction};
+use crate::ledger::{self, Filter, Part, TxRow};
+use crate::models::{Account, Allocation, Attachment, FiscalYear, Fundraiser, GamingEvent, LineItem, Transaction};
 use crate::money::{self, Money};
 
 #[derive(Debug, Default, Deserialize)]
@@ -25,6 +25,7 @@ pub struct ListQuery {
     fy: Option<String>,
     month: Option<String>,
     line: Option<String>,
+    fundraiser: Option<String>,
     uncategorized: Option<String>,
     missing_receipt: Option<String>,
     uncleared: Option<String>,
@@ -41,11 +42,13 @@ struct ListPage {
     accounts: Vec<Account>,
     years: Vec<FiscalYear>,
     line_items: Vec<LineItem>,
+    fundraisers: Vec<Fundraiser>,
     can_edit: bool,
     sel_account: Option<i64>,
     sel_fy: String,
     sel_month: String,
     sel_line: Option<i64>,
+    sel_fundraiser: Option<i64>,
     uncategorized: bool,
     missing_receipt: bool,
     uncleared: bool,
@@ -62,6 +65,10 @@ impl ListPage {
 
     fn is_line(&self, id: &i64) -> bool {
         self.sel_line == Some(*id)
+    }
+
+    fn is_fundraiser(&self, id: &i64) -> bool {
+        self.sel_fundraiser == Some(*id)
     }
 }
 
@@ -80,6 +87,7 @@ pub async fn list(state: Ctx, user: UserExt, Query(q): Query<ListQuery>) -> AppR
     let mut filter = Filter {
         account_id: opt_id(&q.account),
         line_item_id: opt_id(&q.line),
+        fundraiser_id: opt_id(&q.fundraiser),
         uncategorized: flag(&q.uncategorized),
         missing_receipt: flag(&q.missing_receipt),
         uncleared: flag(&q.uncleared),
@@ -110,10 +118,12 @@ pub async fn list(state: Ctx, user: UserExt, Query(q): Query<ListQuery>) -> AppR
         accounts: db::accounts(pool).await?,
         years,
         line_items: db::line_items(pool).await?,
+        fundraisers: db::fundraisers(pool).await?,
         sel_account: filter.account_id,
         sel_fy,
         sel_month,
         sel_line: filter.line_item_id,
+        sel_fundraiser: filter.fundraiser_id,
         uncategorized: filter.uncategorized,
         missing_receipt: filter.missing_receipt,
         uncleared: filter.uncleared,
@@ -129,7 +139,18 @@ pub async fn list(state: Ctx, user: UserExt, Query(q): Query<ListQuery>) -> AppR
 struct RowPartial {
     r: TxRow,
     line_items: Vec<LineItem>,
+    fundraisers: Vec<Fundraiser>,
     can_edit: bool,
+}
+
+/// One row of the list, after an inline change.
+async fn row_partial(pool: &sqlx::SqlitePool, id: i64) -> AppResult<Response> {
+    render(RowPartial {
+        r: ledger::row(pool, id).await?.ok_or(AppError::NotFound)?,
+        line_items: db::line_items(pool).await?,
+        fundraisers: db::fundraisers(pool).await?,
+        can_edit: true,
+    })
 }
 
 #[derive(Deserialize)]
@@ -148,16 +169,52 @@ pub async fn assign(
     let pool = &state.pool;
     let tx = ledger::get(pool, id).await?.ok_or(AppError::NotFound)?;
     let account = db::account(pool, tx.account_id).await?.ok_or(AppError::NotFound)?;
+    // Changing the line item keeps the fundraiser and memo of a single part.
+    let old = ledger::allocations(pool, id).await?;
     let parts = match opt_id(&form.line_item_id) {
-        Some(li) => vec![(li, tx.amount_cents, String::new())],
+        Some(li) => {
+            let mut part = Part::whole(li, &tx);
+            if let [only] = old.as_slice() {
+                part.memo = only.memo.clone();
+                part.fundraiser_id = only.fundraiser_id;
+            }
+            vec![part]
+        }
         None => vec![],
     };
     ledger::set_allocations(pool, &tx, &account, &parts).await.map_err(|e| AppError::BadRequest(e.to_string()))?;
-    render(RowPartial {
-        r: ledger::row(pool, id).await?.ok_or(AppError::NotFound)?,
-        line_items: db::line_items(pool).await?,
-        can_edit: true,
-    })
+    row_partial(pool, id).await
+}
+
+#[derive(Deserialize)]
+pub struct FundraiserForm {
+    fundraiser_id: Option<String>,
+}
+
+/// Inline fundraiser change from the list, for a transaction with one part.
+/// Returns the updated row. A split transaction is edited on its own page.
+pub async fn set_fundraiser(
+    state: Ctx,
+    user: UserExt,
+    UrlPath(id): UrlPath<i64>,
+    Form(form): Form<FundraiserForm>,
+) -> AppResult<Response> {
+    require_edit(&user)?;
+    let pool = &state.pool;
+    let tx = ledger::get(pool, id).await?.ok_or(AppError::NotFound)?;
+    let account = db::account(pool, tx.account_id).await?.ok_or(AppError::NotFound)?;
+    let allocs = ledger::allocations(pool, id).await?;
+    let [only] = allocs.as_slice() else {
+        return Err(AppError::BadRequest("Choose a line item first. For a split, open the transaction.".into()));
+    };
+    let part = Part {
+        line_item_id: only.line_item_id,
+        amount_cents: only.amount_cents,
+        memo: only.memo.clone(),
+        fundraiser_id: opt_id(&form.fundraiser_id),
+    };
+    ledger::set_allocations(pool, &tx, &account, &[part]).await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+    row_partial(pool, id).await
 }
 
 #[derive(Template)]
@@ -178,11 +235,18 @@ struct DetailPage {
     reimbursed_by: Option<Transaction>,
     /// For a gaming transaction: the licensed gaming events it can belong to.
     events: Vec<GamingEvent>,
+    /// For a general transaction: the fundraisers its parts can belong to.
+    fundraisers: Vec<Fundraiser>,
 }
 
 impl DetailPage {
     fn is_event(&self, id: &i64) -> bool {
         self.r.tx.gaming_event_id == Some(*id)
+    }
+
+    /// True when any part of the transaction belongs to fundraiser `id`.
+    fn in_fundraiser(&self, id: &i64) -> bool {
+        self.allocations.iter().any(|(a, _)| a.fundraiser_id == Some(*id))
     }
 }
 
@@ -238,9 +302,11 @@ pub async fn detail(
     let rule_pattern = suggest_pattern(&r.tx.description);
     let title = r.tx.display_name().to_string();
     let events = if account.is_gaming() { db::gaming_events(pool).await? } else { Vec::new() };
+    let fundraisers = if account.is_gaming() { Vec::new() } else { db::fundraisers(pool).await? };
     render(DetailPage {
         layout: Layout::new(&state, &user, "transactions", title, &flash).await?,
         events,
+        fundraisers,
         line_items: items.into_iter().filter(|li| li.fund() == account.fund()).collect(),
         attachments: ledger::attachments(pool, id).await?,
         r,
@@ -323,8 +389,15 @@ pub async fn update(
             let allocs = ledger::allocations(pool, id).await?;
             let mut moved = tx.clone();
             moved.amount_cents = amount;
-            let parts =
-                if allocs.len() == 1 { vec![(allocs[0].line_item_id, amount, allocs[0].memo.clone())] } else { vec![] };
+            let parts = match allocs.as_slice() {
+                [only] => vec![Part {
+                    line_item_id: only.line_item_id,
+                    amount_cents: amount,
+                    memo: only.memo.clone(),
+                    fundraiser_id: only.fundraiser_id,
+                }],
+                _ => vec![],
+            };
             ledger::set_allocations(pool, &moved, &account, &parts)
                 .await
                 .map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -349,6 +422,9 @@ pub struct SplitForm {
     amount: Vec<String>,
     #[serde(default)]
     memo: Vec<String>,
+    /// One per row, blank for none. Absent when the PAC has no fundraisers.
+    #[serde(default)]
+    fundraiser_id: Vec<String>,
 }
 
 pub async fn set_allocations(
@@ -369,7 +445,7 @@ pub async fn set_allocations(
         let raw = f.amount.get(i).map(String::as_str).unwrap_or("").trim();
         // A blank amount on a single line means "the whole amount".
         let amount = if raw.is_empty() {
-            let used: i64 = parts.iter().map(|(_, a, _)| *a).sum();
+            let used: i64 = parts.iter().map(|p: &Part| p.amount_cents).sum();
             tx.amount_cents - used
         } else {
             match money::parse(raw) {
@@ -377,11 +453,16 @@ pub async fn set_allocations(
                 None => return Ok(redirect_err(&back, &format!("\"{raw}\" is not an amount."))),
             }
         };
-        parts.push((li, amount, f.memo.get(i).cloned().unwrap_or_default().trim().to_string()));
+        parts.push(Part {
+            line_item_id: li,
+            amount_cents: amount,
+            memo: f.memo.get(i).cloned().unwrap_or_default().trim().to_string(),
+            fundraiser_id: f.fundraiser_id.get(i).and_then(|v| v.trim().parse().ok()),
+        });
     }
     match ledger::set_allocations(pool, &tx, &account, &parts).await {
         Ok(()) => {
-            let total: i64 = parts.iter().map(|(_, a, _)| *a).sum();
+            let total: i64 = parts.iter().map(|p| p.amount_cents).sum();
             if total == tx.amount_cents || parts.is_empty() {
                 Ok(redirect_ok(&back, "Line items saved."))
             } else {
@@ -399,6 +480,7 @@ struct NewPage {
     accounts: Vec<Account>,
     line_items: Vec<LineItem>,
     events: Vec<GamingEvent>,
+    fundraisers: Vec<Fundraiser>,
     today: NaiveDate,
 }
 
@@ -410,6 +492,7 @@ pub async fn new_form(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> 
         accounts: db::accounts(pool).await?.into_iter().filter(|a| a.active).collect(),
         line_items: db::line_items(pool).await?.into_iter().filter(|li| li.active).collect(),
         events: db::gaming_events(pool).await?,
+        fundraisers: db::fundraisers(pool).await?.into_iter().filter(|f| f.active).collect(),
         today: chrono::Local::now().date_naive(),
     })
 }
@@ -425,6 +508,7 @@ pub struct NewForm {
     reference: String,
     line_item_id: Option<String>,
     gaming_event_id: Option<String>,
+    fundraiser_id: Option<String>,
     notes: String,
     cleared: Option<String>,
 }
@@ -468,7 +552,9 @@ pub async fn create(state: Ctx, user: UserExt, Form(f): Form<NewForm>) -> AppRes
     .last_insert_rowid();
     if let Some(li) = opt_id(&f.line_item_id) {
         let tx = ledger::get(pool, id).await?.ok_or(AppError::NotFound)?;
-        if let Err(e) = ledger::set_allocations(pool, &tx, &account, &[(li, amount, String::new())]).await {
+        let fundraiser_id = if account.is_gaming() { None } else { opt_id(&f.fundraiser_id) };
+        let part = Part { fundraiser_id, ..Part::whole(li, &tx) };
+        if let Err(e) = ledger::set_allocations(pool, &tx, &account, &[part]).await {
             return Ok(redirect_err(&format!("/transactions/{id}"), &e.to_string()));
         }
     }
@@ -606,6 +692,7 @@ pub struct RuleForm {
     pattern: String,
     line_item_id: i64,
     payee: String,
+    fundraiser_id: Option<String>,
     this_account: Option<String>,
     apply_now: Option<String>,
 }
@@ -625,11 +712,16 @@ pub async fn make_rule(
         return Ok(redirect_err(&back, "The rule text must be at least 3 characters."));
     }
     let account_id = f.this_account.is_some().then_some(tx.account_id);
-    sqlx::query("INSERT INTO rules (pattern, account_id, line_item_id, payee) VALUES (?, ?, ?, ?)")
+    let fundraiser_id = match super::accounts::rule_fundraiser(pool, f.line_item_id, &f.fundraiser_id).await? {
+        Ok(id) => id,
+        Err(e) => return Ok(redirect_err(&back, &e)),
+    };
+    sqlx::query("INSERT INTO rules (pattern, account_id, line_item_id, payee, fundraiser_id) VALUES (?, ?, ?, ?, ?)")
         .bind(pattern)
         .bind(account_id)
         .bind(f.line_item_id)
         .bind(f.payee.trim())
+        .bind(fundraiser_id)
         .execute(pool)
         .await?;
     let applied = if f.apply_now.is_some() { apply_rules_to_uncategorized(pool).await? } else { 0 };
@@ -652,7 +744,8 @@ pub async fn apply_rules_to_uncategorized(pool: &sqlx::SqlitePool) -> anyhow::Re
         .await?;
         for tx in txs {
             if let Some((rule, li)) = crate::import::match_rule(&rules, &tx.description) {
-                ledger::set_allocations(pool, &tx, &account, &[(li.id, tx.amount_cents, String::new())]).await?;
+                let part = Part { fundraiser_id: rule.fundraiser_id, ..Part::whole(li.id, &tx) };
+                ledger::set_allocations(pool, &tx, &account, &[part]).await?;
                 if tx.payee.is_empty() && !rule.payee.is_empty() {
                     sqlx::query("UPDATE transactions SET payee = ? WHERE id = ?")
                         .bind(&rule.payee)

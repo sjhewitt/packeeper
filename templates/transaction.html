@@ -55,39 +55,57 @@
       {% if line_items.is_empty() %}
       <p class="muted">There are no {{ account.kind }} line items. <a href="/line-items">Add one</a>.</p>
       {% else %}
-      <form method="post" action="/transactions/{{ r.tx.id }}/allocations" id="splits">
-        <div class="split-row muted small"><span>Line item</span><span>Amount</span><span>Memo</span><span></span></div>
+      <form method="post" action="/transactions/{{ r.tx.id }}/allocations" id="splits" {% if !fundraisers.is_empty() %}class="with-fundraisers"{% endif %}>
+        <div class="split-row muted small"><span class="s-line">Line item</span><span class="s-amount">Amount</span>{% if fundraisers.is_empty() %}<span class="s-memo">Memo</span>{% endif %}<span></span></div>
         {% for (a, _name) in allocations %}
         <div class="split-row">
-          <select name="line_item_id">
+          <select name="line_item_id" class="s-line" aria-label="Line item">
             <option value="">—</option>
             {% for li in line_items %}<option value="{{ li.id }}" {% if li.id == a.line_item_id %}selected{% endif %}>{{ li.label() }}</option>{% endfor %}
           </select>
-          <input type="text" class="amount" name="amount" value="{{ a.amount().abs().plain() }}">
-          <input type="text" name="memo" value="{{ a.memo }}">
-          <button type="button" class="danger small" onclick="this.parentElement.remove()" title="Remove">×</button>
+          <input type="text" class="amount s-amount" name="amount" value="{{ a.amount().abs().plain() }}" aria-label="Amount">
+          {% if !fundraisers.is_empty() %}
+          <select name="fundraiser_id" class="s-fundraiser" aria-label="Fundraiser">
+            <option value="">No fundraiser</option>
+            {% for f in fundraisers %}{% if f.active || a.is_fundraiser(f.id) %}<option value="{{ f.id }}" {% if a.is_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
+          </select>
+          {% endif %}
+          <input type="text" name="memo" class="s-memo" value="{{ a.memo }}" placeholder="Memo" aria-label="Memo">
+          <button type="button" class="danger small s-remove" onclick="this.parentElement.remove()" title="Remove">×</button>
         </div>
         {% endfor %}
         {% if allocations.is_empty() %}
         <div class="split-row">
-          <select name="line_item_id">
+          <select name="line_item_id" class="s-line" aria-label="Line item">
             <option value="">— choose —</option>
             {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}">{{ li.label() }}</option>{% endif %}{% endfor %}
           </select>
-          <input type="text" class="amount" name="amount" placeholder="all">
-          <input type="text" name="memo">
-          <span></span>
+          <input type="text" class="amount s-amount" name="amount" placeholder="all" aria-label="Amount">
+          {% if !fundraisers.is_empty() %}
+          <select name="fundraiser_id" class="s-fundraiser" aria-label="Fundraiser">
+            <option value="">No fundraiser</option>
+            {% for f in fundraisers %}{% if f.active %}<option value="{{ f.id }}">{{ f.name }}</option>{% endif %}{% endfor %}
+          </select>
+          {% endif %}
+          <input type="text" name="memo" class="s-memo" placeholder="Memo" aria-label="Memo">
+          <span class="s-remove"></span>
         </div>
         {% endif %}
         <template id="split-template">
           <div class="split-row">
-            <select name="line_item_id">
+            <select name="line_item_id" class="s-line" aria-label="Line item">
               <option value="">— choose —</option>
               {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}">{{ li.label() }}</option>{% endif %}{% endfor %}
             </select>
-            <input type="text" class="amount" name="amount" placeholder="rest">
-            <input type="text" name="memo">
-            <button type="button" class="danger small" onclick="this.parentElement.remove()" title="Remove">×</button>
+            <input type="text" class="amount s-amount" name="amount" placeholder="rest" aria-label="Amount">
+            {% if !fundraisers.is_empty() %}
+            <select name="fundraiser_id" class="s-fundraiser" aria-label="Fundraiser">
+              <option value="">No fundraiser</option>
+              {% for f in fundraisers %}{% if f.active %}<option value="{{ f.id }}">{{ f.name }}</option>{% endif %}{% endfor %}
+            </select>
+            {% endif %}
+            <input type="text" name="memo" class="s-memo" placeholder="Memo" aria-label="Memo">
+            <button type="button" class="danger small s-remove" onclick="this.parentElement.remove()" title="Remove">×</button>
           </div>
         </template>
         <p class="small">
@@ -95,6 +113,7 @@
           {% if layout.can_edit %}<a href="#" onclick="var t=document.getElementById('split-template'); this.closest('form').insertBefore(t.content.cloneNode(true), t); return false;">Split across another line item</a>{% endif %}
         </p>
         {% if layout.can_edit %}<button>Save line items</button>{% endif %}
+        {% if !fundraisers.is_empty() %}<p class="hint small muted">Give each part its fundraiser, such as the sales and the supplier's bill. <a href="/fundraisers">Fundraisers</a></p>{% endif %}
       </form>
       {% endif %}
     </div>
@@ -197,6 +216,14 @@
         </select>
       </div>
       <div class="field"><label for="rule_payee">and set the payee to</label><input type="text" id="rule_payee" name="payee" value="{{ r.tx.payee }}" placeholder="optional"></div>
+      {% if !fundraisers.is_empty() %}
+      <div class="field"><label for="rule_fundraiser">and the fundraiser to</label>
+        <select id="rule_fundraiser" name="fundraiser_id">
+          <option value="">No fundraiser</option>
+          {% for f in fundraisers %}{% if f.active %}<option value="{{ f.id }}" {% if self.in_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
+        </select>
+      </div>
+      {% endif %}
     </div>
     <label class="check"><input type="checkbox" name="this_account" checked> Only for {{ account.name }}</label>
     <label class="check"><input type="checkbox" name="apply_now" checked> Also apply to transactions that have no line item now</label>

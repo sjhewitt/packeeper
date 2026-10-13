@@ -9,21 +9,23 @@ use typst_as_lib::TypstEngine;
 use typst_as_lib::typst_kit_options::TypstKitFontOptions;
 use typst_layout::PagedDocument;
 
+use super::fundraisers::{self, Status};
 use super::gaming::{self, GamingReport, Level, gasr_date};
 use super::proposal::Proposal;
 use super::{FundSummary, account_summaries, fund_summaries, monthly_totals};
 use crate::db::Settings;
 use crate::fiscal;
 use crate::ledger::TxRow;
-use crate::models::FiscalYear;
+use crate::models::{FiscalYear, Fundraiser};
 use crate::money::Money;
 
-const TEMPLATES: [(&str, &str); 5] = [
+const TEMPLATES: [(&str, &str); 6] = [
     ("lib.typ", include_str!("../../typst/lib.typ")),
     ("monthly.typ", include_str!("../../typst/monthly.typ")),
     ("annual.typ", include_str!("../../typst/annual.typ")),
     ("budget.typ", include_str!("../../typst/budget.typ")),
     ("gaming.typ", include_str!("../../typst/gaming.typ")),
+    ("fundraiser.typ", include_str!("../../typst/fundraiser.typ")),
 ];
 
 pub struct Renderer {
@@ -144,6 +146,46 @@ fn transaction_rows(txs: &[TxRow]) -> Vec<Value> {
         .collect()
 }
 
+fn acc_or_dash(m: Option<Money>) -> String {
+    m.map(acc).unwrap_or_else(|| "–".into())
+}
+
+/// The fundraisers table in the monthly and annual reports: fundraisers with
+/// activity in the year or a goal. The monthly table starts with the month's
+/// net; the annual table ends with last year's net, when there was a year before.
+fn fundraiser_rows(rows: &[Status], monthly: bool) -> Vec<Value> {
+    let with_last = !monthly && rows.iter().any(|r| r.last_year.is_some());
+    let shown: Vec<&Status> = rows.iter().filter(|r| !r.totals.is_empty() || r.goal.is_some()).collect();
+    if shown.is_empty() {
+        return Vec::new();
+    }
+    let cells = |name: String, month: Money, t: fundraisers::Totals, goal: Option<Money>, last: Option<Money>| {
+        let mut c = vec![name];
+        if monthly {
+            c.push(acc(month));
+        }
+        c.extend([acc(t.income), acc(t.costs), acc(t.net()), acc_or_dash(goal)]);
+        if with_last {
+            c.push(acc_or_dash(last));
+        }
+        c
+    };
+    let mut out: Vec<Value> = shown
+        .iter()
+        .map(|r| row(cells(r.fundraiser.name.clone(), r.month.net(), r.totals, r.goal, r.last_year_net())))
+        .collect();
+    let goals: Vec<Money> = shown.iter().filter_map(|r| r.goal).collect();
+    let lasts: Vec<Money> = shown.iter().filter_map(|r| r.last_year_net()).collect();
+    out.push(total(cells(
+        "Total".into(),
+        shown.iter().map(|r| r.month.net()).sum(),
+        fundraisers::sum(shown.iter().copied()),
+        (!goals.is_empty()).then(|| goals.iter().copied().sum()),
+        (!lasts.is_empty()).then(|| lasts.iter().copied().sum()),
+    )));
+    out
+}
+
 /// Lines with no budget and no activity add nothing to a printed report.
 fn has_numbers(r: &super::LineRow) -> bool {
     !(r.budget.is_zero() && r.period.is_zero() && r.ytd.is_zero())
@@ -224,6 +266,7 @@ pub async fn monthly(pool: &SqlitePool, month: NaiveDate) -> anyhow::Result<Valu
     let funds = fund_summaries(pool, &fy, month, end).await?;
     let accounts = account_summaries(pool, month, end).await?;
     let txs = super::transactions(pool, month, end).await?;
+    let fundraising = fundraisers::year(pool, &fy, Some(month), end).await?;
 
     let mut account_rows = Vec::new();
     let mut outstanding = Vec::new();
@@ -303,6 +346,7 @@ pub async fn monthly(pool: &SqlitePool, month: NaiveDate) -> anyhow::Result<Valu
     m.insert("reconcile_warnings".into(), json!(reconcile));
     m.insert("funds".into(), json!(fund_json));
     m.insert("transactions".into(), json!(transaction_rows(&txs)));
+    m.insert("fundraisers".into(), json!(fundraiser_rows(&fundraising, true)));
     m.insert("flags".into(), json!(flags(&txs)));
     Ok(Value::Object(m))
 }
@@ -429,6 +473,7 @@ pub async fn annual(pool: &SqlitePool, fy: &FiscalYear) -> anyhow::Result<Value>
     let txs = super::transactions(pool, fy.start_date, fy.end_date).await?;
     let months = monthly_totals(pool, fy).await?;
     let has_gaming = crate::db::accounts(pool).await?.iter().any(|a| a.is_gaming());
+    let fundraising = fundraisers::year(pool, fy, None, fy.end_date).await?;
 
     let col = |f: fn(&FundSummary) -> Money| -> Vec<String> {
         let vals: Vec<Money> = funds.iter().map(f).collect();
@@ -532,6 +577,12 @@ pub async fn annual(pool: &SqlitePool, fy: &FiscalYear) -> anyhow::Result<Value>
     m.insert("accounts".into(), json!(account_rows));
     m.insert("months".into(), json!(month_rows));
     m.insert("gaming".into(), gaming_json);
+    m.insert("fundraisers".into(), json!(fundraiser_rows(&fundraising, false)));
+    let mut header = vec!["Fundraiser", "Income", "Costs", "Net", "Goal"];
+    if fundraising.iter().any(|r| r.last_year.is_some()) {
+        header.push("Year before");
+    }
+    m.insert("fundraiser_header".into(), json!(header));
     m.insert("notes".into(), json!(fy.notes));
     m.insert("flags".into(), json!(flags(&txs)));
     m.insert("treasurer".into(), json!(settings.treasurer_name));
@@ -750,5 +801,75 @@ pub async fn gasr(pool: &SqlitePool, g: &GamingReport) -> anyhow::Result<Value> 
     m.insert("deposits".into(), json!(deposits));
     m.insert("grants".into(), json!(grants));
     m.insert("checks".into(), json!(checks));
+    Ok(Value::Object(m))
+}
+
+/// One fundraiser's status report for a fiscal year.
+pub async fn fundraiser(pool: &SqlitePool, f: &Fundraiser, fy: &FiscalYear) -> anyhow::Result<Value> {
+    let settings = Settings::load(pool).await?;
+    let status = fundraisers::one(pool, f, fy).await?;
+    let parts = fundraisers::parts(pool, f.id, fy.start_date, fy.end_date).await?;
+    let history = fundraisers::history(pool, f.id).await?;
+
+    let net_note = match status.last_year_net() {
+        Some(n) => format!("{} the year before", n),
+        None => String::new(),
+    };
+    let mut figures = vec![
+        figure("Income", status.totals.income, ""),
+        figure("Costs", status.totals.costs, ""),
+        figure("Net raised", status.net(), &net_note),
+    ];
+    if let Some(goal) = status.goal {
+        let pct = status.percent().map(|p| format!("{p}%")).unwrap_or_default();
+        let note = match status.to_go() {
+            Some(m) => format!("{pct} · {m} to go"),
+            None => format!("{pct} · goal reached"),
+        };
+        figures.push(figure("Goal", goal, &note));
+    }
+
+    let mut by_line: Vec<Value> =
+        fundraisers::by_line(&parts).into_iter().map(|(name, amount)| row(vec![name, acc(amount)])).collect();
+    if !by_line.is_empty() {
+        by_line.push(total(vec!["Net".into(), acc(status.net())]));
+    }
+    let transactions: Vec<Value> = parts
+        .iter()
+        .map(|p| {
+            let mut desc = p.name.clone();
+            if !p.purpose.is_empty() {
+                desc = format!("{desc} — {}", p.purpose);
+            }
+            if !p.memo.is_empty() {
+                desc = format!("{desc} ({})", p.memo);
+            }
+            let line = if p.split { format!("{} (part)", p.line_item) } else { p.line_item.clone() };
+            let receipt = if p.receipts > 0 {
+                "✓"
+            } else if p.needs_receipt {
+                "✗"
+            } else {
+                ""
+            };
+            let cells = vec![short_date(p.date), desc, line, acc(p.amount()), receipt.into()];
+            if p.needs_receipt { flag(cells) } else { row(cells) }
+        })
+        .collect();
+    let history_rows: Vec<Value> = history
+        .iter()
+        .map(|(y, t, goal)| row(vec![y.label.clone(), acc(t.income), acc(t.costs), acc(t.net()), acc_or_dash(*goal)]))
+        .collect();
+
+    let mut m = base(&settings);
+    m.insert("name".into(), json!(f.name));
+    m.insert("description".into(), json!(f.description));
+    m.insert("fy_label".into(), json!(fy.label));
+    m.insert("period".into(), json!(fy.period()));
+    m.insert("figures".into(), json!(figures));
+    m.insert("by_line".into(), json!(by_line));
+    m.insert("transactions".into(), json!(transactions));
+    m.insert("history".into(), json!(history_rows));
+    m.insert("checks".into(), json!(fundraisers::checks(&parts)));
     Ok(Value::Object(m))
 }
