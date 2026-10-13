@@ -15,11 +15,12 @@
     <table>
       <thead><tr><th>Name</th><th>Kind</th><th class="num">Used</th><th></th></tr></thead>
       <tbody>
-      {% for (li, used) in items %}{% if li.fund == *fund %}
+      {% for (li, used, fundraiser) in items %}{% if li.fund == *fund %}
         <tr>
           <td>{{ li.name }}{% if !li.active %} <span class="tag muted">hidden</span>{% endif %}
             {% if let Some(g) = li.gasr_label() %} <span class="tag gaming" title="Gaming Account Summary Report">{{ g }}</span>{% endif %}
-            {% if li.kind == "expense" && !li.receipt_required %} <span class="tag muted">no receipt needed</span>{% endif %}</td>
+            {% if li.kind == "expense" && !li.receipt_required %} <span class="tag muted">no receipt needed</span>{% endif %}
+            {% if !fundraiser.is_empty() %} <span class="tag" title="Its transactions belong to this fundraiser">{{ fundraiser }}</span>{% endif %}</td>
           <td>{{ li.kind }}</td>
           <td class="num">{{ used }}</td>
           <td><a href="/line-items/{{ li.id }}">Edit</a></td>
@@ -55,6 +56,15 @@
     </select>
     <div class="hint">A choice that does not suit the fund and kind is ignored.</div>
   </div>
+  {% if !fundraisers.is_empty() %}
+  <div class="field"><label for="fundraiser_id">Fundraiser (general fund only)</label>
+    <select id="fundraiser_id" name="fundraiser_id">
+      <option value="">No fundraiser</option>
+      {% for f in fundraisers %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+    </select>
+    <div class="hint">Transactions on this line item then belong to the fundraiser, unless you choose another one for a transaction.</div>
+  </div>
+  {% endif %}
   <div class="field"><label for="description">Description</label><input type="text" id="description" name="description"></div>
   <button>Add line item</button>
 </form>

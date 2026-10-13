@@ -43,3 +43,25 @@
     });
   });
 })();
+
+// A line item can name a fundraiser. The "no fundraiser" choice beside a
+// line item says which fundraiser the chosen line item gives. Each line item
+// option carries the name in data-fundraiser.
+(function () {
+  var LINE = 'select[name="line_item_id"]';
+
+  function show(line) {
+    var scope = line.closest('.split-row') || line.form;
+    var fundraiser = scope && scope.querySelector('select[name="fundraiser_id"]');
+    var none = fundraiser && fundraiser.querySelector('option[value=""]');
+    if (!none) return;
+    var option = line.options[line.selectedIndex];
+    var name = option && option.getAttribute('data-fundraiser');
+    none.textContent = name ? name + ' (from the line item)' : 'No fundraiser';
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.matches && e.target.matches(LINE)) show(e.target);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(LINE), show);
+})();

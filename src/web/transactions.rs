@@ -169,14 +169,22 @@ pub async fn assign(
     let pool = &state.pool;
     let tx = ledger::get(pool, id).await?.ok_or(AppError::NotFound)?;
     let account = db::account(pool, tx.account_id).await?.ok_or(AppError::NotFound)?;
-    // Changing the line item keeps the fundraiser and memo of a single part.
+    // Changing the line item keeps the memo of a single part, and the
+    // fundraiser that someone chose for it. A fundraiser that came from the
+    // old line item goes with it, so the new line item's fundraiser (if any)
+    // takes its place.
     let old = ledger::allocations(pool, id).await?;
     let parts = match opt_id(&form.line_item_id) {
         Some(li) => {
             let mut part = Part::whole(li, &tx);
             if let [only] = old.as_slice() {
+                let from_line: Option<i64> = sqlx::query_scalar("SELECT fundraiser_id FROM line_items WHERE id = ?")
+                    .bind(only.line_item_id)
+                    .fetch_optional(pool)
+                    .await?
+                    .flatten();
                 part.memo = only.memo.clone();
-                part.fundraiser_id = only.fundraiser_id;
+                part.fundraiser_id = only.fundraiser_id.filter(|f| from_line != Some(*f));
             }
             vec![part]
         }
@@ -247,6 +255,25 @@ impl DetailPage {
     /// True when any part of the transaction belongs to fundraiser `id`.
     fn in_fundraiser(&self, id: &i64) -> bool {
         self.allocations.iter().any(|(a, _)| a.fundraiser_id == Some(*id))
+    }
+
+    fn line_fundraiser(&self, id: &i64) -> String {
+        line_fundraiser(&self.line_items, &self.fundraisers, *id)
+    }
+
+    /// The words for "no fundraiser chosen" on a part of line item `id`.
+    fn none_label(&self, id: &i64) -> String {
+        match self.line_fundraiser(id) {
+            name if name.is_empty() => "No fundraiser".to_string(),
+            name => format!("{name} (from the line item)"),
+        }
+    }
+
+    /// True when part `a` has its line item's fundraiser. The form then shows
+    /// "from the line item", so the fundraiser follows a change of line item.
+    fn has_line_fundraiser(&self, a: &Allocation) -> bool {
+        a.fundraiser_id.is_some()
+            && self.line_items.iter().any(|li| li.id == a.line_item_id && li.fundraiser_id == a.fundraiser_id)
     }
 }
 
@@ -482,6 +509,18 @@ struct NewPage {
     events: Vec<GamingEvent>,
     fundraisers: Vec<Fundraiser>,
     today: NaiveDate,
+}
+
+impl NewPage {
+    fn line_fundraiser(&self, id: &i64) -> String {
+        line_fundraiser(&self.line_items, &self.fundraisers, *id)
+    }
+}
+
+/// The name of line item `id`'s fundraiser, or "" when it has none.
+fn line_fundraiser(line_items: &[LineItem], fundraisers: &[Fundraiser], id: i64) -> String {
+    let fid = line_items.iter().find(|li| li.id == id).and_then(|li| li.fundraiser_id);
+    fundraisers.iter().find(|f| Some(f.id) == fid).map(|f| f.name.clone()).unwrap_or_default()
 }
 
 pub async fn new_form(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppResult<Response> {

@@ -34,7 +34,7 @@
     <div class="field"><label for="line_item_id">Line item</label>
       <select id="line_item_id" name="line_item_id">
         <option value="">— choose later —</option>
-        {% for li in line_items %}<option value="{{ li.id }}" data-fund="{{ li.fund }}">{{ li.label() }}</option>{% endfor %}
+        {% for li in line_items %}<option value="{{ li.id }}" data-fund="{{ li.fund }}" data-fundraiser="{{ self.line_fundraiser(li.id) }}">{{ li.label() }}</option>{% endfor %}
       </select>
     </div>
   </div>

@@ -210,7 +210,7 @@ dl.facts dd { margin: 0; }
 
 .split-row { display: grid; grid-template-columns: minmax(0, 2.2fr) 110px minmax(0, 1fr) 36px; gap: 8px; margin-bottom: 8px; align-items: center; }
 /* With fundraisers, each part takes two lines: line item and amount, then fundraiser and memo. */
-.with-fundraisers .split-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 110px 36px; grid-template-areas: "line line amount remove" "fundraiser memo memo memo"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.with-fundraisers .split-row { grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr) 110px 36px; grid-template-areas: "line line amount remove" "fundraiser memo memo memo"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .with-fundraisers .split-row:first-child { grid-template-areas: "line line amount remove"; border-bottom: 0; padding-bottom: 0; }
 .with-fundraisers .s-line { grid-area: line; }
 .with-fundraisers .s-amount { grid-area: amount; }

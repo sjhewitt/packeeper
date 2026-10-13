@@ -105,6 +105,9 @@ pub struct LineItem {
     pub description: String,
     pub sort_order: i64,
     pub active: bool,
+    /// A general-fund line item's fundraiser. Its parts belong to it unless
+    /// they name another one.
+    pub fundraiser_id: Option<i64>,
 }
 
 /// Where a gaming line item goes on the Gaming Account Summary Report.

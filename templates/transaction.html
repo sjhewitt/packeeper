@@ -61,13 +61,13 @@
         <div class="split-row">
           <select name="line_item_id" class="s-line" aria-label="Line item">
             <option value="">—</option>
-            {% for li in line_items %}<option value="{{ li.id }}" {% if li.id == a.line_item_id %}selected{% endif %}>{{ li.label() }}</option>{% endfor %}
+            {% for li in line_items %}<option value="{{ li.id }}" data-fundraiser="{{ self.line_fundraiser(li.id) }}" {% if li.id == a.line_item_id %}selected{% endif %}>{{ li.label() }}</option>{% endfor %}
           </select>
           <input type="text" class="amount s-amount" name="amount" value="{{ a.amount().abs().plain() }}" aria-label="Amount">
           {% if !fundraisers.is_empty() %}
           <select name="fundraiser_id" class="s-fundraiser" aria-label="Fundraiser">
-            <option value="">No fundraiser</option>
-            {% for f in fundraisers %}{% if f.active || a.is_fundraiser(f.id) %}<option value="{{ f.id }}" {% if a.is_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
+            <option value="">{{ self.none_label(a.line_item_id) }}</option>
+            {% for f in fundraisers %}{% if f.active || a.is_fundraiser(f.id) %}<option value="{{ f.id }}" {% if a.is_fundraiser(f.id) && !self.has_line_fundraiser(a) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
           </select>
           {% endif %}
           <input type="text" name="memo" class="s-memo" value="{{ a.memo }}" placeholder="Memo" aria-label="Memo">
@@ -78,7 +78,7 @@
         <div class="split-row">
           <select name="line_item_id" class="s-line" aria-label="Line item">
             <option value="">— choose —</option>
-            {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}">{{ li.label() }}</option>{% endif %}{% endfor %}
+            {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}" data-fundraiser="{{ self.line_fundraiser(li.id) }}">{{ li.label() }}</option>{% endif %}{% endfor %}
           </select>
           <input type="text" class="amount s-amount" name="amount" placeholder="all" aria-label="Amount">
           {% if !fundraisers.is_empty() %}
@@ -95,7 +95,7 @@
           <div class="split-row">
             <select name="line_item_id" class="s-line" aria-label="Line item">
               <option value="">— choose —</option>
-              {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}">{{ li.label() }}</option>{% endif %}{% endfor %}
+              {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}" data-fundraiser="{{ self.line_fundraiser(li.id) }}">{{ li.label() }}</option>{% endif %}{% endfor %}
             </select>
             <input type="text" class="amount s-amount" name="amount" placeholder="rest" aria-label="Amount">
             {% if !fundraisers.is_empty() %}
@@ -113,7 +113,7 @@
           {% if layout.can_edit %}<a href="#" onclick="var t=document.getElementById('split-template'); this.closest('form').insertBefore(t.content.cloneNode(true), t); return false;">Split across another line item</a>{% endif %}
         </p>
         {% if layout.can_edit %}<button>Save line items</button>{% endif %}
-        {% if !fundraisers.is_empty() %}<p class="hint small muted">Give each part its fundraiser, such as the sales and the supplier's bill. <a href="/fundraisers">Fundraisers</a></p>{% endif %}
+        {% if !fundraisers.is_empty() %}<p class="hint small muted">Give each part its fundraiser, such as the sales and the supplier's bill. A line item with a fundraiser gives it to its parts, unless you choose another one. <a href="/fundraisers">Fundraisers</a></p>{% endif %}
       </form>
       {% endif %}
     </div>
@@ -212,7 +212,7 @@
       <div class="field"><label for="pattern">When the bank description contains</label><input type="text" id="pattern" name="pattern" value="{{ rule_pattern }}" required></div>
       <div class="field"><label for="rule_li">Assign to</label>
         <select id="rule_li" name="line_item_id">
-          {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}" {% if r.is_line(li.id) %}selected{% endif %}>{{ li.label() }}</option>{% endif %}{% endfor %}
+          {% for li in line_items %}{% if li.active %}<option value="{{ li.id }}" data-fundraiser="{{ self.line_fundraiser(li.id) }}" {% if r.is_line(li.id) %}selected{% endif %}>{{ li.label() }}</option>{% endif %}{% endfor %}
         </select>
       </div>
       <div class="field"><label for="rule_payee">and set the payee to</label><input type="text" id="rule_payee" name="payee" value="{{ r.tx.payee }}" placeholder="optional"></div>

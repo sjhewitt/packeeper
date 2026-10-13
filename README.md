@@ -106,6 +106,7 @@ A fundraiser is not tied to a year. Add "Purdy's chocolates" once; next year, it
 - Fundraisers are for general-account money. Gaming funds cannot pay fundraising costs. Record a licensed raffle or bingo as a licensed gaming event.
 - Income is the money in and costs are the money out, of the parts that carry the fundraiser. Net is income less costs. A goal is the net to raise in one fiscal year.
 - Fundraisers are a second view of the same money. Each part still counts on its line item in the budget and the reports.
+- A general-fund line item can name a fundraiser (**Settings → Line items → Edit**). Then every part on that line item belongs to the fundraiser, unless you choose another fundraiser for the part. This includes the parts that use the line item already, new ones, and imports that a rule assigns. When the line item of a part changes, a fundraiser that came from the old line item goes with it.
 - Mark a fundraiser inactive when the PAC stops running it. Its past years stay in the reports. A fundraiser with no transactions can be deleted.
 
 ## Exporting from Prospera

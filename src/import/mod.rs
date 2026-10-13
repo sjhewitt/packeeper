@@ -201,7 +201,8 @@ pub async fn apply(
                     .bind(line_item.id)
                     .bind(row.amount_cents)
                     // rules_for keeps only rules in the account's fund; fundraisers are general only.
-                    .bind(if account.is_gaming() { None } else { rule.fundraiser_id })
+                    // A rule's own fundraiser comes first, then the line item's.
+                    .bind(if account.is_gaming() { None } else { rule.fundraiser_id.or(line_item.fundraiser_id) })
                     .execute(&mut *tx)
                     .await?;
                 }

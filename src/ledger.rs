@@ -201,7 +201,8 @@ impl Part {
 
 /// Replaces the allocations of a transaction. Every line item must be in the
 /// account's fund, and the parts must have the sign of the transaction.
-/// Fundraisers are for general-account transactions only.
+/// Fundraisers are for general-account transactions only. A part with no
+/// fundraiser gets its line item's fundraiser, if the line item has one.
 pub async fn set_allocations(
     pool: &SqlitePool,
     tx: &Transaction,
@@ -209,7 +210,14 @@ pub async fn set_allocations(
     parts: &[Part],
 ) -> anyhow::Result<()> {
     let items: HashMap<i64, LineItem> = crate::db::line_items(pool).await?.into_iter().map(|li| (li.id, li)).collect();
-    for part in parts {
+    let parts: Vec<Part> = parts
+        .iter()
+        .map(|p| {
+            let from_line = items.get(&p.line_item_id).and_then(|li| li.fundraiser_id);
+            Part { fundraiser_id: p.fundraiser_id.or(from_line), ..p.clone() }
+        })
+        .collect();
+    for part in &parts {
         let li =
             items.get(&part.line_item_id).ok_or_else(|| anyhow::anyhow!("unknown line item {}", part.line_item_id))?;
         if li.fund() != account.fund() {
@@ -257,6 +265,31 @@ pub async fn set_allocations(
     }
     dbtx.commit().await?;
     Ok(())
+}
+
+/// After a line item gets fundraiser `new`: its parts with no fundraiser, and
+/// its parts that had the line item's old fundraiser, get `new`. Parts with
+/// another fundraiser keep it. Returns the number of parts changed.
+pub async fn give_line_fundraiser(
+    pool: &SqlitePool,
+    line_item_id: i64,
+    old: Option<i64>,
+    new: i64,
+) -> anyhow::Result<u64> {
+    let li: LineItem =
+        sqlx::query_as("SELECT * FROM line_items WHERE id = ?").bind(line_item_id).fetch_one(pool).await?;
+    anyhow::ensure!(li.fund() == crate::models::Fund::General, "fundraisers are for general-fund line items only");
+    Ok(sqlx::query(
+        "UPDATE allocations SET fundraiser_id = ?
+         WHERE line_item_id = ? AND (fundraiser_id IS NULL OR fundraiser_id IS ?) AND fundraiser_id IS NOT ?",
+    )
+    .bind(new)
+    .bind(line_item_id)
+    .bind(old)
+    .bind(new)
+    .execute(pool)
+    .await?
+    .rows_affected())
 }
 
 /// Counts for the dashboard and nav badges.

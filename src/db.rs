@@ -171,12 +171,12 @@ const SEED_VERSION: i64 = 2;
 /// only the line items added since its seed version, once.
 pub async fn seed(pool: &SqlitePool) -> anyhow::Result<()> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM line_items").fetch_one(pool).await?;
-    let version: i64 = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'seed_version'")
-        .fetch_optional(pool)
-        .await?
-        .and_then(|v: String| v.parse().ok())
-        .unwrap_or(1);
-    let items: Vec<_> = if count == 0 {
+    let recorded: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'seed_version'").fetch_optional(pool).await?;
+    let version: i64 = recorded.as_deref().and_then(|v| v.parse().ok()).unwrap_or(1);
+    // Only a new database gets every starter line item. When a treasurer
+    // deletes every line item, they stay deleted.
+    let items: Vec<_> = if count == 0 && recorded.is_none() {
         DEFAULT_LINE_ITEMS.iter().chain(EVENT_LINE_ITEMS).collect()
     } else if version < 2 {
         EVENT_LINE_ITEMS.iter().collect()

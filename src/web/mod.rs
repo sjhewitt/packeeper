@@ -208,6 +208,7 @@ pub fn router(state: AppState) -> Router {
         .route("/accounts/{id}", get(accounts::edit).post(accounts::update))
         .route("/line-items", get(accounts::line_items).post(accounts::create_line_item))
         .route("/line-items/{id}", get(accounts::edit_line_item).post(accounts::update_line_item))
+        .route("/line-items/{id}/delete", post(accounts::delete_line_item))
         .route("/rules", get(accounts::rules).post(accounts::create_rule))
         .route("/rules/{id}/delete", post(accounts::delete_rule))
         .route("/login", get(auth::login_page).post(auth::login))

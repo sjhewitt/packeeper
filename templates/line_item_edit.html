@@ -6,6 +6,11 @@
     <h1>{{ li.name }}</h1>
     <p class="sub">{% if li.fund == "gaming" %}Gaming grant fund{% else %}General fund{% endif %} · used by {{ used }} transaction(s)</p>
   </div>
+  {% if layout.can_edit && used == 0 %}
+  <div class="actions">
+    <form method="post" action="/line-items/{{ li.id }}/delete" data-confirm="{{ delete_question() }}"><button class="danger small">Delete</button></form>
+  </div>
+  {% endif %}
 </div>
 <form class="panel" method="post" action="/line-items/{{ li.id }}" style="max-width: 760px;">
   <div class="fields">
@@ -33,8 +38,18 @@
     <div class="hint">Licensed gaming event lines need the event's licence on each transaction.</div>
   </div>
   {% endif %}
+  {% if li.fund == "general" && !fundraisers.is_empty() %}
+  <div class="field"><label for="fundraiser_id">Fundraiser</label>
+    <select id="fundraiser_id" name="fundraiser_id">
+      <option value="">No fundraiser</option>
+      {% for f in fundraisers %}{% if f.active || self.is_fundraiser(f.id) %}<option value="{{ f.id }}" {% if self.is_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
+    </select>
+    <div class="hint">Transactions on this line item belong to the fundraiser, unless you choose another one for a transaction. When you choose a fundraiser here, the transactions that already use this line item and have no fundraiser get it too.</div>
+  </div>
+  {% endif %}
   <div class="field"><label for="description">Description</label><input type="text" id="description" name="description" value="{{ li.description }}"></div>
   <label class="check"><input type="checkbox" name="active" {% if li.active %}checked{% endif %}> Show in lists (untick to retire a line; history stays)</label>
+  {% if used > 0 %}<p class="small muted" style="margin: 0 0 10px 24px;">Transactions use this line item, so it cannot be deleted. Untick "Show in lists" to retire it.</p>{% endif %}
   {% if li.kind == "expense" %}<label class="check"><input type="checkbox" name="receipt_required" {% if li.receipt_required %}checked{% endif %}> Payments need a receipt</label>{% endif %}
   {% if layout.can_edit %}<p><button>Save line item</button></p>{% endif %}
 </form>
