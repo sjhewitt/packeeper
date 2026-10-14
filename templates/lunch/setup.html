@@ -11,13 +11,23 @@
 <div class="grid two">
   <div class="panel">
     <h2>Card payments</h2>
-    {% if !cards_available %}
-      <p class="muted">Card payments are not set up on this server. Parents can pay by e-transfer or cash.</p>
+    {% if helcim %}
+      <dl class="facts">
+        <dt>Account</dt><dd>The PAC's own Helcim account</dd>
+        <dt>Cards</dt><dd><span class="tag good">on</span></dd>
+        <dt>Fees</dt><dd>Helcim charges its fees in your Helcim account. PAC Keeper takes no fee.</dd>
+      </dl>
+      {% if layout.can_edit %}
+      <div class="cta" style="margin-top: 14px;">
+        <form method="post" action="/lunch/setup/helcim/remove" data-confirm="Stop card payments through Helcim? Paid orders stay paid. PAC Keeper forgets the API token."><button class="danger small">Stop card payments</button></form>
+      </div>
+      {% endif %}
     {% else if let Some(s) = stripe %}
       <dl class="facts">
         <dt>Account</dt><dd><code>{{ s.account_id }}</code></dd>
         <dt>Kind</dt><dd>{% if s.kind == "standard" %}The PAC's own Stripe account{% else %}Through PAC Keeper (Stripe Express){% endif %}</dd>
         <dt>Cards</dt><dd>{% if s.charges_enabled %}<span class="tag good">on</span>{% else %}<span class="tag warn">set-up not finished</span>{% endif %}</dd>
+        {% if s.kind == "express" %}<dt>Payouts</dt><dd>To the PAC's bank account once a week, on {{ payout_day }}. The PAC sees them in its Stripe Express dashboard.</dd>{% endif %}
         <dt>Fees</dt><dd>{% if s.kind == "standard" %}Stripe charges its fees in your Stripe account.{% if let Some(t) = standard_terms %} PAC Keeper adds {{ t }}.{% endif %}{% else %}{{ express_terms }}, taken from each payment. This covers Stripe's fees.{% endif %}</dd>
       </dl>
       {% if layout.can_edit %}
@@ -29,15 +39,26 @@
       </div>
       {% endif %}
     {% else %}
-      <p>Choose one way to take cards. Card details go to Stripe's secure page, never to PAC Keeper.</p>
+      <p>Choose one way to take cards. Card details go to the card company's secure form, never to PAC Keeper.</p>
+      {% if cards_available %}
       {% if can_connect_own %}
       <h3>Use your PAC's own Stripe account</h3>
       <p class="small">For a PAC that has a Stripe account. Payments go to it, and Stripe charges its fees there. {% if let Some(t) = standard_terms %}PAC Keeper adds {{ t }}.{% else %}PAC Keeper takes no fee.{% endif %}</p>
       {% if layout.can_edit %}<form method="post" action="/lunch/setup/standard"><button class="secondary">Connect your Stripe account</button></form>{% endif %}
       {% endif %}
       <h3>Take cards through PAC Keeper</h3>
-      <p class="small">For a PAC without Stripe. PAC Keeper opens a Stripe account for the PAC. Stripe asks for details about the PAC, its signing officers, and its bank account, and pays the money to that bank. The fee is {{ express_terms }}, taken from each payment.</p>
+      <p class="small">For a PAC without Stripe. PAC Keeper opens a Stripe account for the PAC. Stripe asks for details about the PAC, its signing officers, and its bank account, and pays the money to that bank once a week, on {{ payout_day }}. The fee is {{ express_terms }}, taken from each payment.</p>
       {% if layout.can_edit %}<form method="post" action="/lunch/setup/express"><button>Set up card payments</button></form>{% endif %}
+      {% endif %}
+      <h3>Use your PAC's own Helcim account</h3>
+      <p class="small">For a PAC that has a Helcim account. Payments go to it, and Helcim charges its fees there. PAC Keeper takes no fee.</p>
+      <p class="small">In Helcim, open All Tools, then Integrations, then API Access Configurations. Add a configuration with Transaction Processing set to Admin, so that refunds work, and General and Settings set to No access. Paste its API token here. PAC Keeper keeps it encrypted.</p>
+      {% if layout.can_edit %}
+      <form method="post" action="/lunch/setup/helcim">
+        <div class="field"><label for="helcim_token">Helcim API token</label><input type="password" id="helcim_token" name="token" autocomplete="off" required></div>
+        <button class="secondary">Connect Helcim</button>
+      </form>
+      {% endif %}
     {% endif %}
   </div>
 

@@ -1,0 +1,63 @@
+{% extends "family/base.html" %}
+{% block title %}Pay order {{ order.reference() }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/family">Hot lunch</a> › <a href="/family/orders/{{ order.id }}">Order {{ order.reference() }}</a></p>
+    <h1>Pay {{ order.total() }} by card</h1>
+    <p class="sub">Helcim's secure form opens on this page. Your card details go to Helcim, never to PAC Keeper.</p>
+  </div>
+</div>
+
+<div class="panel" id="helcim-pay" data-token="{{ checkout_token }}">
+  <p id="helcim-status">Opening the payment form…</p>
+  <p>
+    <button type="button" id="helcim-open" class="secondary" hidden>Open the payment form again</button>
+  </p>
+  <form method="post" action="/family/orders/{{ order.id }}/card" id="helcim-done">
+    <button class="secondary small">I paid. Check the payment.</button>
+  </form>
+  <p class="small"><a href="/family/orders/{{ order.id }}">Back to the order</a></p>
+</div>
+
+<script src="https://secure.helcim.app/helcim-pay/services/start.js"></script>
+<script>
+  // The checkout token comes from a data- attribute. When Helcim's form
+  // reports a payment, the server checks it with Helcim before it marks the
+  // order paid.
+  (function () {
+    var box = document.getElementById('helcim-pay');
+    var token = box.getAttribute('data-token');
+    var status = document.getElementById('helcim-status');
+    var again = document.getElementById('helcim-open');
+    var done = false;
+
+    function open() {
+      if (typeof appendHelcimPayIframe !== 'function') {
+        status.textContent = 'The payment form did not load. Try again in a few minutes, or pay another way.';
+        return;
+      }
+      again.hidden = true;
+      status.textContent = 'Pay in the Helcim form.';
+      appendHelcimPayIframe(token, true);
+    }
+
+    window.addEventListener('message', function (event) {
+      if (!event.data || event.data.eventName !== 'helcim-pay-js-' + token) return;
+      if (event.data.eventStatus === 'SUCCESS' && !done) {
+        done = true;
+        status.textContent = 'Payment received. PAC Keeper is checking it with Helcim.';
+        document.getElementById('helcim-done').submit();
+      } else if (event.data.eventStatus === 'ABORTED') {
+        status.textContent = 'The card payment did not go through. Try again, or pay another way.';
+      } else if (event.data.eventStatus === 'HIDE' && !done) {
+        if (typeof removeHelcimPayIframe === 'function') removeHelcimPayIframe();
+        status.textContent = 'The payment form is closed. The order is not paid yet.';
+        again.hidden = false;
+      }
+    });
+    again.addEventListener('click', open);
+    open();
+  })();
+</script>
+{% endblock %}

@@ -39,7 +39,7 @@
 
   <div class="panel">
     <h2>How to pay</h2>
-    {% if cards %}<label class="check"><input type="radio" name="method" value="card" checked> Card, on Stripe's secure page. Card orders start at {{ smallest_card }}.</label>{% endif %}
+    {% if cards %}<label class="check"><input type="radio" name="method" value="card" checked> Card, {{ card_page }}. Card orders start at {{ smallest_card }}.</label>{% endif %}
     {% if offline.etransfer() %}<label class="check"><input type="radio" name="method" value="etransfer" {% if !cards %}checked{% endif %}> Interac e-Transfer to {{ offline.etransfer_email }}</label>{% endif %}
     {% if offline.cash %}<label class="check"><input type="radio" name="method" value="cash" {% if !cards && !offline.etransfer() %}checked{% endif %}> Cash to the school office</label>{% endif %}
     {% if !cards && !offline.etransfer() && !offline.cash %}<p class="muted">The PAC has not set up a way to pay yet.</p>{% endif %}

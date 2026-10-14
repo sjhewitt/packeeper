@@ -231,9 +231,14 @@ The application fee on an Express payment, with each part rounded up to a cent:
 | Part | Default | Setting |
 |---|---|---|
 | Card fee | 2.9% + C$0.30 | `PAC_STRIPE_CARD_BP`, `PAC_STRIPE_CARD_CENTS` |
-| Payout fee | 0.25% | `PAC_STRIPE_PAYOUT_BP` |
+| Payout fee, on each payment | 0.25% | `PAC_STRIPE_PAYOUT_BP` |
 | Account fee, on the first card payment each month | C$2.00 | `PAC_STRIPE_MONTHLY_CENTS` |
+| Fee for each payout, for each payout day in the month, on the first card payment each month | C$0.25 | `PAC_STRIPE_PAYOUT_CENTS` |
 | Your surcharge | none | `PAC_SURCHARGE_BP`, `PAC_SURCHARGE_CENTS` |
+
+**Payouts.** Stripe pays each Express PAC once a week, on Monday (`PAC_STRIPE_PAYOUT_DAY`, any weekday). The PAC gives Stripe its bank account during the set-up, and sees its payouts in its Stripe Express dashboard. A month has at most one payout for each payout day in it, so the month's charge covers every possible payout: C$2.00 and C$0.25 for each Monday, or C$3.00 to C$3.25. An account made before weekly payouts gets the weekly schedule the next time its treasurer returns from Stripe's set-up page.
+
+Every request to Stripe names API version `2025-06-30.basil`, so the calls work the same whatever version your Stripe account defaults to.
 
 Rates are in basis points: 290 is 2.9%. Check them against Stripe's current prices for Canada. International cards cost more, so a small surcharge leaves room for them. On Express payments the platform account answers for disputes first; a refund from PAC Keeper takes the money back from the PAC's account, and the fees are not returned.
 
@@ -243,7 +248,19 @@ To turn card payments on, set these for the hosted server:
 - `PAC_STRIPE_WEBHOOK_SECRETS`: in Stripe, add two webhook endpoints for `https://app.packeeper.ca/stripe/webhook`, one for **events on your account** and one for **events on connected accounts**. Send `checkout.session.completed` and `checkout.session.async_payment_succeeded` to each. Put both signing secrets here, separated by a comma.
 - `PAC_STRIPE_CLIENT_ID`: the Connect client id (`ca_...`), so that PACs can connect their own accounts. In Stripe's Connect settings, add the redirect address `https://app.packeeper.ca/lunch/setup/standard/return`. Without it, PACs can use only Express.
 
-Without `PAC_STRIPE_SECRET_KEY`, hot lunch works with e-transfer and cash only.
+Without `PAC_STRIPE_SECRET_KEY`, the Stripe choices do not show. PACs can still take cards with Helcim, or use e-transfer and cash.
+
+### Card payments (Helcim)
+
+A PAC with its own [Helcim](https://www.helcim.com) account can take cards there instead of Stripe. The server needs no settings for it.
+
+- **Connect.** In Helcim, the treasurer opens **All Tools → Integrations → API Access Configurations** and adds a configuration with **Transaction Processing: Admin** (Admin lets refunds work) and no other access. They paste its API token under **Hot lunch → Payments and families**. PAC Keeper checks the token with Helcim, and keeps it encrypted with a key made from the server's `secret.key`. A copy of `control.db` alone does not show it.
+- **Paying.** The parent pays in Helcim's card form (HelcimPay.js) on the order's card page. Each checkout has a new invoice number. The server then asks Helcim for that invoice's transactions. Only an approved purchase of the order's amount in CAD pays the order. The server also checks waiting card orders of the last 3 days every 5 minutes, so an order is paid even when the parent closes the page early.
+- **Fees.** Helcim charges its fees in the PAC's account. PAC Keeper takes no fee. If you are a Helcim integration partner, set `PAC_HELCIM_PARTNER_TOKEN` and every request carries it, for Helcim's revenue share.
+- **Refunds** go back through Helcim when the token has Admin access. Otherwise refund in Helcim.
+- HelcimPay.js needs an HTTPS address that the public can reach. It does not work on `127.0.0.1`. Test it with a Helcim developer test account.
+
+A PAC uses one card company at a time: Stripe or Helcim.
 
 ## The public demo
 

@@ -190,6 +190,8 @@ pub fn router(state: AppState) -> Router {
         .route("/lunch/setup/standard", post(lunch::standard))
         .route("/lunch/setup/standard/return", get(lunch::standard_return))
         .route("/lunch/setup/stripe/remove", post(lunch::remove_stripe))
+        .route("/lunch/setup/helcim", post(lunch::connect_helcim))
+        .route("/lunch/setup/helcim/remove", post(lunch::remove_helcim))
         .route("/lunch/setup/code", post(lunch::new_code))
         .route("/lunch/families/{person}/remove", post(lunch::remove_family))
         .route("/stripe/webhook", post(lunch::stripe_webhook))
@@ -201,6 +203,7 @@ pub fn router(state: AppState) -> Router {
         .route("/family/periods/{id}", get(family::order_page).post(family::place_order))
         .route("/family/orders/{id}", get(family::order))
         .route("/family/orders/{id}/pay", post(family::pay_again))
+        .route("/family/orders/{id}/card", get(family::card).post(family::card_paid))
         .route("/family/orders/{id}/cancel", post(family::cancel))
         .route("/settings", get(settings::page).post(settings::save))
         .route("/settings/backup.zip", get(settings::backup))
@@ -445,3 +448,4 @@ pub fn opt_id(s: &Option<String>) -> Option<i64> {
 pub type UserExt = Extension<CurrentUser>;
 
 pub use auth::{DESKTOP_COOKIE, add_user, hash_password, verify_password};
+pub use family::spawn_helcim_checks;

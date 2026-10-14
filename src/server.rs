@@ -118,12 +118,14 @@ pub async fn serve_hosted(
     if !hosted.stats.is_empty() {
         println!("Visit counts: {}, every hour", hosted.stats.describe());
     }
+    let key = load_key(dir)?;
     let lunch = if hot_lunch {
-        let lunch = crate::lunch::Lunch::from_env()?;
+        let lunch = crate::lunch::Lunch::from_env(key.master())?;
         match &lunch.stripe {
-            Some(_) => println!("Hot lunch: on, with card payments ({})", lunch.fees.express_terms()),
-            None => println!("Hot lunch: on, without card payments (PAC_STRIPE_SECRET_KEY is not set)"),
+            Some(_) => println!("Hot lunch: on, with Stripe card payments ({})", lunch.fees.express_terms()),
+            None => println!("Hot lunch: on, without Stripe (PAC_STRIPE_SECRET_KEY is not set)"),
         }
+        println!("Hot lunch: PACs can also take cards through their own Helcim accounts");
         Some(Arc::new(lunch))
     } else {
         None
@@ -133,6 +135,9 @@ pub async fn serve_hosted(
     }
     let hosted = Arc::new(hosted);
     crate::hosted::stats::spawn_hourly(hosted.clone());
+    if let Some(lunch) = &lunch {
+        web::spawn_helcim_checks(hosted.clone(), lunch.clone());
+    }
     let state = web::AppState {
         single: None,
         hosted: Some(hosted),
@@ -143,7 +148,7 @@ pub async fn serve_hosted(
         loopback_only: false,
         desktop_secret: None,
         lunch,
-        key: load_key(dir)?,
+        key,
     };
     let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
     axum::serve(listener, web::router(state)).with_graceful_shutdown(shutdown_signal()).await?;

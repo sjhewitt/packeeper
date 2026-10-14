@@ -8,6 +8,7 @@
 //! e-transfers show up in the bank import, on the hot lunch line item.
 
 pub mod fees;
+pub mod helcim;
 pub mod stripe;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -19,15 +20,22 @@ use crate::db;
 use crate::money::Money;
 
 /// The server-wide hot lunch settings: on when the server runs with
-/// --hot-lunch. Card payments need the platform's Stripe keys as well.
+/// --hot-lunch. Card payments through Stripe need the platform's Stripe keys
+/// as well. Helcim needs nothing on the server: each PAC brings its own account.
 pub struct Lunch {
     pub stripe: Option<stripe::Stripe>,
     pub fees: fees::FeeConfig,
+    pub helcim: helcim::Helcim,
 }
 
 impl Lunch {
-    pub fn from_env() -> anyhow::Result<Lunch> {
-        Ok(Lunch { stripe: stripe::Stripe::from_env()?, fees: fees::FeeConfig::from_env()? })
+    /// `server_key` seals the PACs' Helcim tokens.
+    pub fn from_env(server_key: &[u8]) -> anyhow::Result<Lunch> {
+        Ok(Lunch {
+            stripe: stripe::Stripe::from_env()?,
+            fees: fees::FeeConfig::from_env()?,
+            helcim: helcim::Helcim::from_env(server_key),
+        })
     }
 }
 
@@ -209,6 +217,9 @@ pub struct Order {
     pub stripe_payment_intent: Option<String>,
     pub created_at: String,
     pub paid_at: Option<String>,
+    /// The invoice number of the latest Helcim checkout.
+    pub helcim_invoice: Option<String>,
+    pub helcim_transaction: Option<String>,
 }
 
 impl Order {
@@ -580,6 +591,44 @@ pub async fn mark_paid(pool: &SqlitePool, order_id: i64, payment_intent: Option<
     .execute(pool)
     .await?;
     Ok(done.rows_affected() == 1)
+}
+
+/// Starts a Helcim checkout for a pending card order: its new invoice number,
+/// and no PAC Keeper fee.
+pub async fn set_helcim_invoice(pool: &SqlitePool, order_id: i64, invoice: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE lunch_orders SET helcim_invoice = ?, fee_cents = 0, monthly_fee_included = 0
+         WHERE id = ? AND status = 'pending'",
+    )
+    .bind(invoice)
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Marks a pending order paid by Helcim transaction `transaction_id`, once.
+pub async fn mark_paid_helcim(pool: &SqlitePool, order_id: i64, transaction_id: &str) -> anyhow::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE lunch_orders SET status = 'paid', paid_at = ?, helcim_transaction = ? WHERE id = ? AND status = 'pending'",
+    )
+    .bind(db::now())
+    .bind(transaction_id)
+    .bind(order_id)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// Card orders that wait for a Helcim payment, made at `since` or later.
+pub async fn waiting_for_helcim(pool: &SqlitePool, since: &str) -> anyhow::Result<Vec<Order>> {
+    Ok(sqlx::query_as(
+        "SELECT * FROM lunch_orders
+         WHERE status = 'pending' AND method = 'card' AND helcim_invoice IS NOT NULL AND created_at >= ?",
+    )
+    .bind(since)
+    .fetch_all(pool)
+    .await?)
 }
 
 /// Cancels a pending order, or marks a paid one refunded.

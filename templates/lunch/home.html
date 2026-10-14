@@ -32,11 +32,11 @@
   <div class="card {% if self.can_pay() %}general{% else %}alert{% endif %}">
     <div class="label">Payments</div>
     <div class="note" style="margin-top: 6px; font-size: 14px; line-height: 1.7;">
-      {% if let Some(s) = stripe %}
+      {% if helcim %}<span class="tag good">cards on</span> own Helcim
+      {% else if let Some(s) = stripe %}
         {% if s.charges_enabled %}<span class="tag good">cards on</span>{% else %}<span class="tag warn">card set-up not finished</span>{% endif %}
         {% if s.kind == "standard" %}own Stripe{% else %}through PAC Keeper{% endif %}
-      {% else if cards_available %}<span class="tag muted">no cards</span>
-      {% else %}<span class="tag muted">no cards on this server</span>{% endif %}
+      {% else %}<span class="tag muted">no cards</span>{% endif %}
       <br>{% if offline.etransfer() %}E-transfer to {{ offline.etransfer_email }}{% else %}No e-transfer{% endif %}
       · {% if offline.cash %}cash{% else %}no cash{% endif %}
       <br><a href="/lunch/setup">Set up payments</a>
@@ -89,9 +89,9 @@
     <li>Set the menu and the divisions (classes) under <a href="/lunch/menu">Menu and divisions</a>.</li>
     <li>Set up payments, and share the sign-up link with families, under <a href="/lunch/setup">Payments and families</a>.</li>
     <li>Add a period, add its lunch days with the items for each day, and open it.</li>
-    <li>Parents add their children and order. Card payments are confirmed by Stripe. Mark e-transfer and cash orders paid when the money arrives.</li>
+    <li>Parents add their children and order. Card payments are confirmed by Stripe or Helcim. Mark e-transfer and cash orders paid when the money arrives.</li>
     <li>After the deadline, close the period. Order from the caterer with the totals, and print a delivery sheet for each day.</li>
-    <li>The money reaches the bank as Stripe payouts or e-transfers. Import the bank file as usual, and give those deposits the hot lunch line item and fundraiser.</li>
+    <li>The money reaches the bank as Stripe or Helcim deposits, or as e-transfers. Import the bank file as usual, and give those deposits the hot lunch line item and fundraiser.</li>
   </ol>
 </details>
 

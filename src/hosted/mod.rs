@@ -499,6 +499,38 @@ impl Hosted {
         Ok(())
     }
 
+    /// The PAC's sealed Helcim API token; see `lunch::helcim`.
+    pub async fn pac_helcim(&self, pac_id: i64) -> anyhow::Result<Option<String>> {
+        Ok(sqlx::query_scalar("SELECT token_sealed FROM pac_helcim WHERE pac_id = ?")
+            .bind(pac_id)
+            .fetch_optional(&self.control)
+            .await?)
+    }
+
+    pub async fn set_pac_helcim(&self, pac_id: i64, token_sealed: &str) -> anyhow::Result<()> {
+        sqlx::query("INSERT OR REPLACE INTO pac_helcim (pac_id, token_sealed, updated_at) VALUES (?, ?, ?)")
+            .bind(pac_id)
+            .bind(token_sealed)
+            .bind(db::now())
+            .execute(&self.control)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_pac_helcim(&self, pac_id: i64) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM pac_helcim WHERE pac_id = ?").bind(pac_id).execute(&self.control).await?;
+        Ok(())
+    }
+
+    /// The active PACs that take cards through Helcim.
+    pub async fn helcim_pacs(&self) -> anyhow::Result<Vec<Pac>> {
+        Ok(sqlx::query_as(
+            "SELECT pacs.* FROM pacs JOIN pac_helcim ON pac_helcim.pac_id = pacs.id WHERE pacs.status = 'active'",
+        )
+        .fetch_all(&self.control)
+        .await?)
+    }
+
     pub async fn remove_pac_stripe(&self, pac_id: i64) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM pac_stripe WHERE pac_id = ?").bind(pac_id).execute(&self.control).await?;
         Ok(())

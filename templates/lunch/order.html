@@ -40,5 +40,6 @@
   <dt>Ordered</dt><dd>{{ order.created_at }}</dd>
   {% if let Some(p) = order.paid_at %}<dt>Paid</dt><dd>{{ p }}</dd>{% endif %}
   {% if let Some(pi) = order.stripe_payment_intent %}<dt>Stripe payment</dt><dd><code>{{ pi }}</code></dd>{% endif %}
+  {% if let Some(t) = order.helcim_transaction %}<dt>Helcim transaction</dt><dd><code>{{ t }}</code></dd>{% else if let Some(i) = order.helcim_invoice %}<dt>Helcim invoice</dt><dd><code>{{ i }}</code> (not paid yet)</dd>{% endif %}
 </dl>
 {% endblock %}

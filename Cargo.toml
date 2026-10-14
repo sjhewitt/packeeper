@@ -6,6 +6,7 @@ description = "PAC Keeper: bookkeeping and reports for a BC school Parent Adviso
 homepage = "https://packeeper.ca"
 
 [dependencies]
+aes-gcm = "0.10.3"
 anyhow = "1.0.104"
 argon2 = "0.6.0"
 askama = "0.16.1"

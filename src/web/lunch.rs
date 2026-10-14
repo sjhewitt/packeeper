@@ -47,6 +47,11 @@ fn today() -> NaiveDate {
     chrono::Local::now().date_naive()
 }
 
+/// The API token of the PAC's own Helcim account, if the PAC connected one.
+async fn helcim_token(l: &Lunch, h: &HostedCtx) -> anyhow::Result<Option<String>> {
+    h.hosted.pac_helcim(h.pac.id).await?.map(|sealed| l.helcim.open(&sealed)).transpose()
+}
+
 fn parse_date(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok()
 }
@@ -58,8 +63,9 @@ fn parse_date(s: &str) -> Option<NaiveDate> {
 struct HomePage {
     layout: Layout,
     enabled: bool,
-    cards_available: bool,
     stripe: Option<PacStripe>,
+    /// The PAC takes cards through its own Helcim account.
+    helcim: bool,
     offline: Offline,
     items: usize,
     divisions: usize,
@@ -70,7 +76,10 @@ struct HomePage {
 
 impl HomePage {
     fn can_pay(&self) -> bool {
-        self.stripe.as_ref().is_some_and(|s| s.charges_enabled) || self.offline.etransfer() || self.offline.cash
+        self.helcim
+            || self.stripe.as_ref().is_some_and(|s| s.charges_enabled)
+            || self.offline.etransfer()
+            || self.offline.cash
     }
 }
 
@@ -85,8 +94,8 @@ pub async fn home(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
     render(HomePage {
         layout: Layout::new(&state, &user, "lunch", "Hot lunch", &flash).await?,
         enabled: lunch::enabled(pool).await?,
-        cards_available: l.stripe.is_some(),
-        stripe: h.hosted.pac_stripe(h.pac.id).await?,
+        stripe: h.hosted.pac_stripe(h.pac.id).await?.filter(|_| l.stripe.is_some()),
+        helcim: h.hosted.pac_helcim(h.pac.id).await?.is_some(),
         offline: Offline::load(pool).await?,
         items: lunch::items(pool).await?.iter().filter(|i| i.active).count(),
         divisions: lunch::divisions(pool).await?.iter().filter(|d| d.active).count(),
@@ -539,9 +548,20 @@ pub async fn order(
     if let Some(r) = require_on(&state).await? {
         return Ok(r);
     }
-    let (_, h) = lunch_ctx(&state)?;
+    let (l, h) = lunch_ctx(&state)?;
     let pool = &state.pool;
-    let order = lunch::order(pool, id).await?.ok_or(AppError::NotFound)?;
+    let mut order = lunch::order(pool, id).await?.ok_or(AppError::NotFound)?;
+    // A Helcim payment that nobody reported yet.
+    if order.status == "pending"
+        && order.helcim_invoice.is_some()
+        && let Some(token) = helcim_token(&l, &h).await?
+    {
+        match super::family::confirm_helcim(&h.hosted, &l.helcim, &h.pac, pool, &order, &token).await {
+            Ok(true) => order = lunch::order(pool, id).await?.ok_or(AppError::NotFound)?,
+            Ok(false) => {}
+            Err(e) => tracing::warn!("could not check the Helcim payment of order {id}: {e:#}"),
+        }
+    }
     let period = lunch::period(pool, order.period_id).await?.ok_or(AppError::NotFound)?;
     let parent = match h.hosted.person(order.person_id).await? {
         Some(p) => format!("{} <{}>", p.name, p.email),
@@ -565,7 +585,7 @@ pub async fn mark_paid(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> 
     let back = format!("/lunch/orders/{id}");
     let order = lunch::order(&state.pool, id).await?.ok_or(AppError::NotFound)?;
     if order.method == "card" {
-        return Ok(redirect_err(&back, "Stripe confirms card payments by itself."));
+        return Ok(redirect_err(&back, "Card payments are confirmed by the card company, not by hand."));
     }
     if lunch::mark_paid(&state.pool, id, None).await? {
         let (_, h) = lunch_ctx(&state)?;
@@ -589,9 +609,9 @@ pub async fn cancel(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> App
     }
 }
 
-/// Refunds a paid order: a card payment through Stripe, or an e-transfer or
-/// cash payment that the treasurer pays back outside PAC Keeper.
-pub async fn refund(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
+/// Refunds a paid order: a card payment through Stripe or Helcim, or an
+/// e-transfer or cash payment that the treasurer pays back outside PAC Keeper.
+pub async fn refund(state: Ctx, user: UserExt, headers: HeaderMap, UrlPath(id): UrlPath<i64>) -> AppResult<Response> {
     require_edit(&user)?;
     if let Some(r) = require_on(&state).await? {
         return Ok(r);
@@ -602,7 +622,20 @@ pub async fn refund(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> App
     if order.status != "paid" {
         return Ok(redirect_err(&back, "Only a paid order can be refunded."));
     }
-    if order.method == "card" {
+    if let Some(transaction) = order.helcim_transaction.as_deref() {
+        let Some(token) = helcim_token(&l, &h).await? else {
+            return Ok(redirect_err(&back, "Helcim is not connected. Refund this payment in Helcim."));
+        };
+        // Helcim asks for the address of whoever asks for the refund.
+        let ip = match super::hosted::client_ip(&headers) {
+            ip if ip.parse::<std::net::IpAddr>().is_ok() => ip,
+            _ => "127.0.0.1".to_string(),
+        };
+        if let Err(e) = l.helcim.refund(&token, transaction, order.total_cents, &ip).await {
+            tracing::error!("Helcim refund of order {id} failed: {e:#}");
+            return Ok(redirect_err(&back, &format!("Helcim did not refund it: {e}")));
+        }
+    } else if order.method == "card" {
         let (Some(stripe), Some(ps), Some(pi)) =
             (l.stripe.as_ref(), h.hosted.pac_stripe(h.pac.id).await?, order.stripe_payment_intent.as_deref())
         else {
@@ -628,10 +661,15 @@ pub async fn refund(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -> App
 #[template(path = "lunch/setup.html")]
 struct SetupPage {
     layout: Layout,
+    /// The server has the platform's Stripe keys.
     cards_available: bool,
     can_connect_own: bool,
     stripe: Option<PacStripe>,
+    /// The PAC takes cards through its own Helcim account.
+    helcim: bool,
     express_terms: String,
+    /// The weekday of the weekly payout to an Express account.
+    payout_day: &'static str,
     standard_terms: Option<String>,
     offline: Offline,
     join_url: String,
@@ -649,7 +687,9 @@ pub async fn setup(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> App
         cards_available: l.stripe.is_some(),
         can_connect_own: l.stripe.as_ref().is_some_and(|s| s.client_id.is_some()),
         stripe: h.hosted.pac_stripe(h.pac.id).await?,
+        helcim: h.hosted.pac_helcim(h.pac.id).await?.is_some(),
         express_terms: l.fees.express_terms(),
+        payout_day: l.fees.payout_day_name(),
         standard_terms: l.fees.standard_terms(),
         offline: Offline::load(&state.pool).await?,
         join_url: format!("{}/join/{code}", h.hosted.base_url),
@@ -692,12 +732,15 @@ pub async fn express(state: Ctx, user: UserExt) -> AppResult<Response> {
     let Some(stripe) = l.stripe.as_ref() else {
         return Ok(redirect_err("/lunch/setup", "Card payments are not set up on this server."));
     };
+    if h.hosted.pac_helcim(h.pac.id).await?.is_some() {
+        return Ok(redirect_err("/lunch/setup", HELCIM_FIRST));
+    }
     let account = match h.hosted.pac_stripe(h.pac.id).await? {
         Some(ps) if ps.is_express() => ps.account_id,
         Some(_) => {
             return Ok(redirect_err("/lunch/setup", "This PAC uses its own Stripe account. Disconnect it first."));
         }
-        None => match stripe.create_express_account(&h.person.email, &h.pac.name).await {
+        None => match stripe.create_express_account(&h.person.email, &h.pac.name, &l.fees.payout_day_key()).await {
             Ok(id) => {
                 h.hosted.set_pac_stripe(h.pac.id, &id, "express", false).await?;
                 id
@@ -732,6 +775,12 @@ pub async fn express_return(state: Ctx) -> AppResult<Response> {
     let (Some(stripe), Some(ps)) = (l.stripe.as_ref(), h.hosted.pac_stripe(h.pac.id).await?) else {
         return Ok(Redirect::to("/lunch/setup").into_response());
     };
+    // Accounts made before weekly payouts get the weekly schedule here.
+    if ps.is_express()
+        && let Err(e) = stripe.set_weekly_payouts(&ps.account_id, &l.fees.payout_day_key()).await
+    {
+        tracing::warn!("could not set weekly payouts for {}: {e:#}", ps.account_id);
+    }
     match stripe.account_status(&ps.account_id).await {
         Ok(status) => {
             h.hosted.set_pac_stripe(h.pac.id, &ps.account_id, &ps.kind, status.charges_enabled).await?;
@@ -769,6 +818,9 @@ pub async fn standard(state: Ctx, user: UserExt, jar: PrivateCookieJar) -> AppRe
         return Ok(r);
     }
     let (l, h) = lunch_ctx(&state)?;
+    if h.hosted.pac_helcim(h.pac.id).await?.is_some() {
+        return Ok(redirect_err("/lunch/setup", HELCIM_FIRST));
+    }
     let mut bytes = [0u8; 18];
     rand::Rng::fill_bytes(&mut rand::rng(), &mut bytes);
     let token = hex::encode(bytes);
@@ -839,6 +891,50 @@ pub async fn remove_stripe(state: Ctx, user: UserExt) -> AppResult<Response> {
     let (_, h) = lunch_ctx(&state)?;
     h.hosted.remove_pac_stripe(h.pac.id).await?;
     Ok(redirect_ok("/lunch/setup", "Card payments are off for this PAC. The Stripe account itself stays as it is."))
+}
+
+const HELCIM_FIRST: &str = "This PAC takes cards through Helcim. Stop that first.";
+
+#[derive(Deserialize)]
+pub struct HelcimForm {
+    #[serde(default)]
+    token: String,
+}
+
+/// Connects the PAC's own Helcim account by its API token. The server checks
+/// the token with Helcim, then keeps it sealed.
+pub async fn connect_helcim(state: Ctx, user: UserExt, Form(f): Form<HelcimForm>) -> AppResult<Response> {
+    require_edit(&user)?;
+    if let Some(r) = require_on(&state).await? {
+        return Ok(r);
+    }
+    let (l, h) = lunch_ctx(&state)?;
+    if h.hosted.pac_stripe(h.pac.id).await?.is_some() {
+        return Ok(redirect_err("/lunch/setup", "This PAC takes cards through Stripe. Stop that first."));
+    }
+    let token = f.token.trim();
+    if token.is_empty() {
+        return Ok(redirect_err("/lunch/setup", "Paste the API token from Helcim."));
+    }
+    if let Err(e) = l.helcim.check_token(token).await {
+        return Ok(redirect_err("/lunch/setup", &format!("Helcim did not accept the token: {e}")));
+    }
+    h.hosted.set_pac_helcim(h.pac.id, &l.helcim.seal(token)?).await?;
+    Ok(redirect_ok("/lunch/setup", "Helcim is connected. Parents can now pay by card."))
+}
+
+/// Stops card payments through Helcim. PAC Keeper forgets the token.
+pub async fn remove_helcim(state: Ctx, user: UserExt) -> AppResult<Response> {
+    require_edit(&user)?;
+    if let Some(r) = require_on(&state).await? {
+        return Ok(r);
+    }
+    let (_, h) = lunch_ctx(&state)?;
+    h.hosted.remove_pac_helcim(h.pac.id).await?;
+    Ok(redirect_ok(
+        "/lunch/setup",
+        "Card payments through Helcim are off. PAC Keeper no longer keeps the API token. Delete it in Helcim too.",
+    ))
 }
 
 pub async fn new_code(state: Ctx, user: UserExt) -> AppResult<Response> {

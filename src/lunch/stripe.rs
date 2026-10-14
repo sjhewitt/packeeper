@@ -8,11 +8,19 @@
 //! - A PAC without one gets an Express account under the platform. Its
 //!   payments are destination charges: the PAC is the merchant
 //!   (`on_behalf_of`), the money goes to its account, and the platform keeps
-//!   the application fee.
+//!   the application fee. Stripe pays the PAC once a week, on the payout
+//!   day (`FeeConfig::payout_day`).
+//!
+//! Every request names the API version (`API_VERSION`), so the calls work the
+//! same whatever version the platform account defaults to.
 
 use std::time::Duration;
 
 use anyhow::Context;
+
+/// The Stripe API version of every request. Weekly payouts on a named day
+/// need 2025-06-30 or later.
+const API_VERSION: &str = "2025-06-30.basil";
 use hmac::{KeyInit, Mac};
 use serde_json::Value;
 
@@ -198,8 +206,15 @@ impl Stripe {
     // ----- Accounts -----
 
     /// A new Express account for a PAC, in Canada.
-    pub async fn create_express_account(&self, email: &str, pac_name: &str) -> anyhow::Result<String> {
-        let form = vec![
+    /// Makes an Express account for a PAC, paid out weekly on `payout_day`
+    /// (such as "monday").
+    pub async fn create_express_account(
+        &self,
+        email: &str,
+        pac_name: &str,
+        payout_day: &str,
+    ) -> anyhow::Result<String> {
+        let mut form = vec![
             ("type".to_string(), "express".to_string()),
             ("country".into(), "CA".into()),
             ("email".into(), email.into()),
@@ -207,6 +222,7 @@ impl Stripe {
             ("capabilities[card_payments][requested]".into(), "true".into()),
             ("capabilities[transfers][requested]".into(), "true".into()),
         ];
+        form.extend(weekly_payouts(payout_day));
         let v = self.post("/v1/accounts", form, None).await?;
         Ok(v["id"].as_str().context("Stripe gave no account id")?.to_string())
     }
@@ -221,6 +237,11 @@ impl Stripe {
         ];
         let v = self.post("/v1/account_links", form, None).await?;
         Ok(v["url"].as_str().context("Stripe gave no onboarding address")?.to_string())
+    }
+
+    /// Pays an Express account out once a week, on `payout_day`.
+    pub async fn set_weekly_payouts(&self, account: &str, payout_day: &str) -> anyhow::Result<()> {
+        self.post(&format!("/v1/accounts/{account}"), weekly_payouts(payout_day), None).await.map(|_| ())
     }
 
     pub async fn account_status(&self, account: &str) -> anyhow::Result<AccountStatus> {
@@ -324,14 +345,14 @@ impl Stripe {
             let auth = format!("Bearer {key}");
             let mut res = match form {
                 Some(form) => {
-                    let mut req = agent.post(&url).header("Authorization", &auth);
+                    let mut req = agent.post(&url).header("Authorization", &auth).header("Stripe-Version", API_VERSION);
                     if let Some(a) = &account {
                         req = req.header("Stripe-Account", a);
                     }
                     req.send_form(form)?
                 }
                 None => {
-                    let mut req = agent.get(&url).header("Authorization", &auth);
+                    let mut req = agent.get(&url).header("Authorization", &auth).header("Stripe-Version", API_VERSION);
                     if let Some(a) = &account {
                         req = req.header("Stripe-Account", a);
                     }
@@ -353,6 +374,14 @@ impl Stripe {
         })
         .await?
     }
+}
+
+/// The form fields of a weekly payout schedule on `day`, such as "monday".
+fn weekly_payouts(day: &str) -> Vec<(String, String)> {
+    vec![
+        ("settings[payouts][schedule][interval]".into(), "weekly".into()),
+        ("settings[payouts][schedule][weekly_payout_days][]".into(), day.into()),
+    ]
 }
 
 #[cfg(test)]
