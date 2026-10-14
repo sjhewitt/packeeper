@@ -1,6 +1,6 @@
 #import "lib.typ": *
 
-#show: report.with(title: "Treasurer's Report", subtitle: data.month_label + " · Fiscal year " + data.fy_label)
+#show: report.with(title: "Treasurer's Report", subtitle: data.period_label + " · Fiscal year " + data.fy_label)
 
 #figures(data.figures)
 
@@ -25,11 +25,11 @@
   #fin-table(
     columns: (2.6fr, 1fr, 1fr, 1fr, 1fr),
     align: "lrrrr",
-    header: ("Line item", "Annual budget", data.month_short, "Year to date", "Remaining"),
+    header: ("Line item", "Annual budget", data.period_short, "Year to date", "Remaining"),
     rows: f.rows,
   )
   #text(9pt, fill: muted)[
-    Fund balance: #f.opening at the start of the month, #f.closing at the end.
+    Fund balance: #f.opening at the start of the #data.period_noun, #f.closing at the end.
     #if f.transfers != "" [Transfers between accounts: #f.transfers.]
   ]
 ]
@@ -39,16 +39,16 @@
   #fin-table(
     columns: (2.2fr, 1fr, 1fr, 1fr, 1fr, 1fr),
     align: "lrrrrr",
-    header: ("Fundraiser", "Net " + data.month_short, "Income to date", "Costs to date", "Net to date", "Goal"),
+    header: ("Fundraiser", "Net " + data.period_short, "Income to date", "Costs to date", "Net to date", "Goal"),
     rows: data.fundraisers,
   )
   #text(9pt, fill: muted)[Net is income less costs. The same money is also in the line items above.]
 ]
 
-= Transactions in #data.month_label
+= #data.transactions_title
 
 #if data.transactions.len() == 0 [
-  #text(fill: muted)[No transactions this month.]
+  #text(fill: muted)[No transactions in this #data.period_noun.]
 ] else [
   #fin-table(
     columns: (0.65fr, 1.35fr, 2.5fr, 1.85fr, 0.95fr, 0.45fr),

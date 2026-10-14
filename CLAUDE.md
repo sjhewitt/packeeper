@@ -28,6 +28,7 @@ cd desktop && npm ci && npm run tauri dev  # the desktop app; set PAC_DATA_DIR t
 - `typst/` — report templates. `lib.typ` has shared styles and `fin-table`. Data arrives as JSON in `sys.inputs.data`, money pre-formatted.
 - `src/web/` — handlers, one module per area. `templates/` — askama HTML. `static/` — CSS and vendored htmx, embedded with `include_str!`.
 - `src/demo.rs` — example data; also the fixture for the report tests.
+- `src/meetings.rs` — meeting dates (a rule fills each fiscal year once; then single dates change) and the report period of each meeting: from the previous meeting to the day before, never before the fiscal year starts. `reports::pdf::ReportPeriod` gives the treasurer's report (`monthly.typ`) its dates and words, for a month or a meeting.
 - `src/lib.rs` holds every module; `src/main.rs` is only the command line. `src/server.rs` starts each kind of server, including `start_desktop`.
 - `desktop/` — the Tauri app (its own crate and `Cargo.lock`, sharing `../target`). `desktop/src/main.rs` starts the server and the window, and routes navigation: file addresses (`server::is_file_path`) are fetched in-process and handed to the computer, and outside links open in the browser. `desktop/dist/` is only the start-up error page.
 - `static/app.js` — the `data-confirm` dialog for forms.

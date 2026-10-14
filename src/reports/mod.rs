@@ -447,6 +447,40 @@ mod tests {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
+    /// Reports between meetings balance, carry the meeting's dates, and render.
+    #[tokio::test]
+    async fn meeting_reports_balance_and_render() {
+        let (pool, dir) = demo_db().await;
+        let fy = fiscal::ensure(&pool, d("2025-07-01")).await.unwrap();
+        crate::meetings::Rule { week: 2, weekday: chrono::Weekday::Wed, skip_months: vec![7, 8] }
+            .save(&pool)
+            .await
+            .unwrap();
+        let periods = crate::meetings::periods(&pool, &fy).await.unwrap();
+        assert_eq!(periods.len(), 10);
+        assert_eq!((periods[0].start, periods[0].end), (d("2025-07-01"), d("2025-09-09")));
+        // Together the periods cover the year up to the last meeting, with no gap.
+        for pair in periods.windows(2) {
+            assert_eq!(pair[0].end.succ_opt(), Some(pair[1].start));
+        }
+        for p in &periods {
+            for f in fund_summaries(&pool, &fy, p.start, p.end).await.unwrap() {
+                assert!(f.balances(), "{} does not balance for {}", f.title(), p.label());
+            }
+        }
+        let oct = periods.iter().find(|p| p.meeting == d("2025-10-08")).unwrap();
+        let data = pdf::treasurers_report(&pool, &pdf::ReportPeriod::meeting(oct)).await.unwrap();
+        assert_eq!(data["period_label"], "Meeting of October 8, 2025 · September 10, 2025 to October 7, 2025");
+        assert_eq!(data["period_short"], "Sep 10 – Oct 7");
+        assert!(!data["transactions"].as_array().unwrap().is_empty());
+        let renderer = pdf::Renderer::new();
+        assert!(renderer.render("monthly.typ", &data).unwrap().starts_with(b"%PDF"));
+        let month = pdf::monthly(&pool, d("2025-10-01")).await.unwrap();
+        assert_eq!(month["period_label"], "October 2025");
+        assert!(renderer.render("monthly.typ", &month).unwrap().starts_with(b"%PDF"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn every_report_balances() {
         let (pool, dir) = demo_db().await;

@@ -95,7 +95,9 @@ The example PAC has a year and a half of activity, both kinds of account, a gami
 2. Open **Transactions** and choose a line item for each new row. Rows with no line item are highlighted. For fundraiser money, choose the fundraiser in the next column. To give each part of a split its own fundraiser, open the transaction.
 3. Open each payment and attach the receipt. For gaming payments, enter the purpose.
 4. When the gaming account repays the general account, open the transfer and tick the general expenses it repays.
-5. Open **Reports** and make the monthly report for the meeting.
+5. Open **Reports** and make the treasurer's report for the meeting.
+
+**Reports between meetings.** A PAC that meets on a set day, such as the 2nd Wednesday of each month, sets the rule under **Settings → Meeting dates**, with the months that have no meeting. The rule fills in each fiscal year's meetings once; then you can move or remove a single meeting, or add one. The report for a meeting covers the days from the last meeting to the day before this one, so nothing falls between two reports. The first report of a fiscal year starts on its first day; the days after the last meeting of the year before are in the annual report. Without meeting dates, the report covers a calendar month.
 
 The dashboard shows what needs attention. The bank balance from each import is compared with the books. A difference usually means a missing import or a wrong opening balance.
 
@@ -398,6 +400,7 @@ pac-keeper user add NAME [--role treasurer|viewer] [--name "Display name"]
 pac-keeper user list
 pac-keeper user remove NAME
 pac-keeper pdf monthly 2026-09 [-o file.pdf]
+pac-keeper pdf meeting 2026-10-14 [-o file.pdf]
 pac-keeper pdf annual [2025-26] [-o file.pdf]
 pac-keeper pdf budget [2026-27] [-o file.pdf]
 pac-keeper pdf gaming [2025-26] [-o file.pdf]

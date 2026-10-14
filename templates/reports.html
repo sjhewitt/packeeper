@@ -8,16 +8,33 @@
 </div>
 
 <div class="grid two">
-  <form class="panel" method="get" action="/reports/monthly.pdf" target="{{ layout.new_tab() }}">
-    <h2>Monthly treasurer's report</h2>
-    <p class="small muted">For each PAC meeting. Bank balances with a check against the bank, budget against actual for the month and the year to date, every transaction in the month, and items to resolve.</p>
-    <div class="field"><label for="month">Month</label>
-      <select id="month" name="month">
-        {% for (value, label) in months %}<option value="{{ value }}" {% if value.as_str() == last_month.as_str() %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
-    </div>
-    <button>Open PDF</button>
-  </form>
+  <div class="panel">
+    <h2>Treasurer's report</h2>
+    <p class="small muted">For each PAC meeting. Bank balances with a check against the bank, budget against actual for the period and the year to date, every transaction in the period, and items to resolve.</p>
+    {% if !meetings.is_empty() %}
+    <form method="get" action="/reports/meeting.pdf" target="{{ layout.new_tab() }}">
+      <div class="field"><label for="meeting">Since the last meeting</label>
+        <select id="meeting" name="meeting">
+          {% for (value, label) in meetings %}<option value="{{ value }}" {% if value.as_str() == meeting_default.as_str() %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <div class="hint">From the last meeting to the day before this one. <a href="/meetings">Meeting dates</a></div>
+      </div>
+      <button>Open PDF</button>
+    </form>
+    <details style="margin-top: 14px;"><summary class="small">A calendar month instead</summary>
+    {% endif %}
+    <form method="get" action="/reports/monthly.pdf" target="{{ layout.new_tab() }}" style="margin-top: 10px;">
+      <div class="field"><label for="month">Month</label>
+        <select id="month" name="month">
+          {% for (value, label) in months %}<option value="{{ value }}" {% if value.as_str() == last_month.as_str() %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <button{% if !meetings.is_empty() %} class="secondary"{% endif %}>Open PDF</button>
+    </form>
+    {% if !meetings.is_empty() %}</details>{% else %}
+    <p class="small muted" style="margin-top: 12px;">Does the PAC meet on a set day, such as the 2nd Wednesday? Set the <a href="/meetings">meeting dates</a> to report on the days since the last meeting.</p>
+    {% endif %}
+  </div>
 
   <form class="panel" method="get" action="/reports/annual.pdf" target="{{ layout.new_tab() }}">
     <h2>Annual report for the AGM</h2>

@@ -4090,7 +4090,7 @@ dependencies = [
 
 [[package]]
 name = "pac-keeper"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4128,7 +4128,7 @@ dependencies = [
 
 [[package]]
 name = "pac-keeper-desktop"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "pac-keeper",

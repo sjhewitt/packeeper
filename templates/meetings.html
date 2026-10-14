@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="muted small" style="margin:0"><a href="/settings">Settings</a> ›</p>
+    <h1>Meeting dates</h1>
+    <p class="sub">The treasurer's report for a meeting covers the days from the last meeting to the day before this one.</p>
+  </div>
+  <div class="actions">
+    <form method="get" action="/meetings">
+      <select name="fy" onchange="this.form.submit()" aria-label="Fiscal year">
+        {% for y in years %}<option value="{{ y.id }}" {% if y.id == fy.id %}selected{% endif %}>{{ y.label }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Meetings in {{ fy.label }}</h2>
+    {% if rows.is_empty() %}
+      <p class="muted">No meetings in this year yet. Save a rule, or add each meeting below.</p>
+    {% else %}
+    <table>
+      <thead><tr><th>Date</th><th>Note</th><th>The report covers</th><th></th></tr></thead>
+      <tbody>
+      {% for (m, period) in rows %}
+        <tr>
+          {% if layout.can_edit %}
+          <td colspan="2">
+            <form method="post" action="/meetings/{{ m.id }}" class="inline" style="display: flex; gap: 6px;">
+              <input type="hidden" name="fy" value="{{ fy.id }}">
+              <input type="date" name="date" value="{{ m.date }}" aria-label="Date" style="width: auto;">
+              <input type="text" name="note" value="{{ m.note }}" placeholder="Note" aria-label="Note">
+              <button class="secondary small">Save</button>
+            </form>
+          </td>
+          {% else %}
+          <td class="nowrap">{{ m.date.format("%a %b %-d, %Y") }}</td><td>{{ m.note }}</td>
+          {% endif %}
+          <td class="small nowrap">{% if let Some(p) = period %}{{ p.range_short() }}{% else %}<span class="muted">nothing</span>{% endif %}</td>
+          <td>{% if layout.can_edit %}<form method="post" action="/meetings/{{ m.id }}/delete" class="inline" data-confirm="Remove the meeting on {{ m.date.format("%B %-d") }}? The next report then starts at the meeting before it."><input type="hidden" name="fy" value="{{ fy.id }}"><button class="danger small">×</button></form>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% if layout.can_edit %}
+    <form method="post" action="/meetings" style="display: flex; gap: 6px; margin-top: 14px; align-items: end;">
+      <input type="hidden" name="fy" value="{{ fy.id }}">
+      <div class="field" style="margin: 0;"><label for="new_date">Add a meeting</label><input type="date" id="new_date" name="date" required></div>
+      <div class="field" style="margin: 0; flex: 1;"><label for="new_note">Note</label><input type="text" id="new_note" name="note" placeholder="Such as: the AGM"></div>
+      <button class="secondary">Add</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <form class="panel" method="post" action="/meetings/rule">
+    <h2>Rule</h2>
+    <input type="hidden" name="fy" value="{{ fy.id }}">
+    <p class="small muted">{% if let Some(r) = rule %}The PAC meets on {{ r.describe() }}.{% else %}No rule yet.{% endif %} The rule fills in each fiscal year's meetings once. After that, change single dates in the list.</p>
+    <div class="fields">
+      <div class="field"><label for="week">Week</label>
+        <select id="week" name="week">{% for (n, label) in weeks %}<option value="{{ n }}" {% if self.is_week(n) %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      </div>
+      <div class="field"><label for="weekday">Day</label>
+        <select id="weekday" name="weekday">{% for d in weekdays %}<option value="{{ d }}" {% if self.is_weekday(d) %}selected{% endif %}>{{ d }}</option>{% endfor %}</select>
+      </div>
+    </div>
+    <div class="field"><label>No meeting in</label>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 10px;">
+        {% for (n, name) in months %}<label class="check small"><input type="checkbox" name="skip" value="{{ n }}" {% if self.skips(n) %}checked{% endif %}> {{ name }}</label>{% endfor %}
+      </div>
+    </div>
+    {% if layout.can_edit %}<button>Save rule</button>{% endif %}
+  </form>
+</div>
+{% if layout.can_edit && rule.is_some() && !rows.is_empty() %}
+<form method="post" action="/meetings/fill" data-confirm="Replace every meeting date in {{ fy.label }} with the rule's dates? Moved and added meetings are lost.">
+  <input type="hidden" name="fy" value="{{ fy.id }}">
+  <button class="secondary small">Use the rule for {{ fy.label }} again</button>
+</form>
+{% endif %}
+{% endblock %}

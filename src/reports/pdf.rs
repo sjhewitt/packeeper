@@ -259,14 +259,60 @@ fn budget_rows(f: &FundSummary, monthly: bool) -> Vec<Value> {
     rows
 }
 
+/// The days a treasurer's report covers, and the words for them.
+pub struct ReportPeriod {
+    pub start: NaiveDate,
+    pub end: NaiveDate,
+    /// After the report title, such as "September 2026".
+    pub label: String,
+    /// A column heading, such as "Sep 2026".
+    pub short: String,
+    /// "month" or "period".
+    pub noun: &'static str,
+    /// The heading of the transaction list.
+    pub transactions_title: String,
+}
+
+impl ReportPeriod {
+    pub fn month(month: NaiveDate) -> ReportPeriod {
+        ReportPeriod {
+            start: month,
+            end: fiscal::month_end(month),
+            label: month.format("%B %Y").to_string(),
+            short: month.format("%b %Y").to_string(),
+            noun: "month",
+            transactions_title: format!("Transactions in {}", month.format("%B %Y")),
+        }
+    }
+
+    /// The days since the last meeting, for the meeting on `p.meeting`.
+    pub fn meeting(p: &crate::meetings::Period) -> ReportPeriod {
+        let long = |d: NaiveDate| d.format("%B %-d, %Y").to_string();
+        ReportPeriod {
+            start: p.start,
+            end: p.end,
+            label: format!("Meeting of {} · {} to {}", long(p.meeting), long(p.start), long(p.end)),
+            short: p.range_short(),
+            noun: "period",
+            transactions_title: format!("Transactions from {} to {}", long(p.start), long(p.end)),
+        }
+    }
+}
+
 pub async fn monthly(pool: &SqlitePool, month: NaiveDate) -> anyhow::Result<Value> {
+    treasurers_report(pool, &ReportPeriod::month(month)).await
+}
+
+/// The treasurer's report for a month or for a meeting. The period stays in
+/// one fiscal year.
+pub async fn treasurers_report(pool: &SqlitePool, p: &ReportPeriod) -> anyhow::Result<Value> {
     let settings = Settings::load(pool).await?;
-    let fy = fiscal::ensure(pool, month).await?;
-    let end = fiscal::month_end(month);
-    let funds = fund_summaries(pool, &fy, month, end).await?;
-    let accounts = account_summaries(pool, month, end).await?;
-    let txs = super::transactions(pool, month, end).await?;
-    let fundraising = fundraisers::year(pool, &fy, Some(month), end).await?;
+    let fy = fiscal::ensure(pool, p.start).await?;
+    let (start, end) = (p.start, p.end.min(fy.end_date));
+    let funds = fund_summaries(pool, &fy, start, end).await?;
+    let accounts = account_summaries(pool, start, end).await?;
+    let txs = super::transactions(pool, start, end).await?;
+    let fundraising = fundraisers::year(pool, &fy, Some(start), end).await?;
 
     let mut account_rows = Vec::new();
     let mut outstanding = Vec::new();
@@ -330,15 +376,17 @@ pub async fn monthly(pool: &SqlitePool, month: NaiveDate) -> anyhow::Result<Valu
     let mut figures = Vec::new();
     for f in &funds {
         if f.fund == crate::models::Fund::General || f.has_activity() {
-            figures.push(figure(f.title(), f.closing, "balance at month end"));
+            figures.push(figure(f.title(), f.closing, &format!("balance at {} end", p.noun)));
         }
     }
-    figures.push(figure("Income", income, "this month"));
-    figures.push(figure("Expenses", expense, "this month"));
+    figures.push(figure("Income", income, &format!("this {}", p.noun)));
+    figures.push(figure("Expenses", expense, &format!("this {}", p.noun)));
 
     let mut m = base(&settings);
-    m.insert("month_label".into(), json!(month.format("%B %Y").to_string()));
-    m.insert("month_short".into(), json!(month.format("%b %Y").to_string()));
+    m.insert("period_label".into(), json!(p.label));
+    m.insert("period_short".into(), json!(p.short));
+    m.insert("period_noun".into(), json!(p.noun));
+    m.insert("transactions_title".into(), json!(p.transactions_title));
     m.insert("fy_label".into(), json!(fy.label));
     m.insert("figures".into(), json!(figures));
     m.insert("accounts".into(), json!(account_rows));

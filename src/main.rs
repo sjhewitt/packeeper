@@ -115,6 +115,9 @@ enum UserCommand {
 enum PdfReport {
     /// Monthly treasurer's report, for a month such as 2026-09.
     Monthly { month: String },
+    /// Treasurer's report for the meeting on a date such as 2026-10-14: the
+    /// days since the last meeting. Set the meeting dates under Settings.
+    Meeting { date: String },
     /// Annual report for the AGM, for a fiscal year label such as 2025–26 (default: current).
     Annual { year: Option<String> },
     /// Budget proposal for a fiscal year (default: next year).
@@ -267,6 +270,13 @@ async fn pdf(pool: &sqlx::SqlitePool, report: PdfReport, output: Option<PathBuf>
             let m = chrono::NaiveDate::parse_from_str(&format!("{month}-01"), "%Y-%m-%d")
                 .context("month must look like 2026-09")?;
             ("monthly.typ", reports::pdf::monthly(pool, m).await?)
+        }
+        PdfReport::Meeting { date } => {
+            let d = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").context("date must look like 2026-10-14")?;
+            let period = pac_keeper::meetings::period(pool, d)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("no meeting on {date}; add it under Settings → Meeting dates"))?;
+            ("monthly.typ", reports::pdf::treasurers_report(pool, &reports::pdf::ReportPeriod::meeting(&period)).await?)
         }
         PdfReport::Annual { year } => {
             let fy = find_year(pool, year).await?;

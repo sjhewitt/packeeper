@@ -12,6 +12,7 @@ mod import;
 mod lunch;
 #[cfg(test)]
 mod lunch_tests;
+mod meetings;
 mod reports;
 mod settings;
 mod transactions;
@@ -152,6 +153,7 @@ pub fn router(state: AppState) -> Router {
         .route("/budget/next-year", post(budget::create_next_year))
         .route("/reports", get(reports::page))
         .route("/reports/monthly.pdf", get(reports::monthly_pdf))
+        .route("/reports/meeting.pdf", get(reports::meeting_pdf))
         .route("/reports/annual.pdf", get(reports::annual_pdf))
         .route("/reports/budget.pdf", get(reports::budget_pdf))
         .route("/reports/gaming.pdf", get(reports::gaming_pdf))
@@ -209,6 +211,11 @@ pub fn router(state: AppState) -> Router {
         .route("/settings/backup.zip", get(settings::backup))
         .route("/accounts", get(accounts::list).post(accounts::create))
         .route("/accounts/{id}", get(accounts::edit).post(accounts::update))
+        .route("/meetings", get(meetings::page).post(meetings::add))
+        .route("/meetings/rule", post(meetings::save_rule))
+        .route("/meetings/fill", post(meetings::fill))
+        .route("/meetings/{id}", post(meetings::update))
+        .route("/meetings/{id}/delete", post(meetings::delete))
         .route("/line-items", get(accounts::line_items).post(accounts::create_line_item))
         .route("/line-items/{id}", get(accounts::edit_line_item).post(accounts::update_line_item))
         .route("/line-items/{id}/delete", post(accounts::delete_line_item))

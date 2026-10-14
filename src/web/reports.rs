@@ -19,6 +19,9 @@ struct ReportsPage {
     current: FiscalYear,
     months: Vec<(String, String)>,
     last_month: String,
+    /// Report periods between meetings, newest first: the meeting date and its label.
+    meetings: Vec<(String, String)>,
+    meeting_default: String,
     has_gaming: bool,
     next_id: i64,
 }
@@ -43,6 +46,14 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
     months.sort_by(|a, b| b.0.cmp(&a.0));
     months.dedup();
     let last_month = months.get(1).or(months.first()).map(|m| m.0.clone()).unwrap_or_default();
+    // This year's meetings, and last year's for a late report.
+    let mut periods = crate::meetings::periods(pool, &current).await?;
+    let meeting_default = crate::meetings::default_period(&periods, today).map(|p| p.key()).unwrap_or_default();
+    if let Some(previous) = fiscal::previous(pool, &current).await? {
+        periods.extend(crate::meetings::periods(pool, &previous).await?);
+    }
+    periods.sort_by_key(|p| std::cmp::Reverse(p.meeting));
+    let meetings = periods.iter().map(|p| (p.key(), p.label())).collect();
     let has_gaming = crate::db::accounts(pool).await?.iter().any(|a| a.is_gaming());
     render(ReportsPage {
         layout: Layout::new(&state, &user, "reports", "Reports", &flash).await?,
@@ -50,6 +61,8 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
         current,
         months,
         last_month,
+        meetings,
+        meeting_default,
         has_gaming,
         next_id,
     })
@@ -88,6 +101,24 @@ pub async fn monthly_pdf(state: Ctx, Query(q): Query<MonthQuery>) -> AppResult<R
     let data = pdf::monthly(&state.pool, month).await?;
     let bytes = render_pdf(&state, "monthly.typ", data).await?;
     Ok(pdf_response(bytes, &format!("treasurers-report-{}.pdf", month.format("%Y-%m"))))
+}
+
+#[derive(Deserialize)]
+pub struct MeetingQuery {
+    meeting: Option<String>,
+}
+
+/// The treasurer's report for a meeting: the days since the last meeting.
+pub async fn meeting_pdf(state: Ctx, Query(q): Query<MeetingQuery>) -> AppResult<Response> {
+    let date = q
+        .meeting
+        .as_deref()
+        .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+        .ok_or_else(|| AppError::BadRequest("Choose a meeting.".into()))?;
+    let period = crate::meetings::period(&state.pool, date).await?.ok_or(AppError::NotFound)?;
+    let data = pdf::treasurers_report(&state.pool, &pdf::ReportPeriod::meeting(&period)).await?;
+    let bytes = render_pdf(&state, "monthly.typ", data).await?;
+    Ok(pdf_response(bytes, &format!("treasurers-report-meeting-{}.pdf", period.key())))
 }
 
 #[derive(Deserialize)]

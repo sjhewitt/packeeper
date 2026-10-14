@@ -867,6 +867,8 @@ pub async fn load_shifted(pool: &SqlitePool, data_dir: &std::path::Path, years: 
             .execute(pool)
             .await?;
     }
+    // The example PAC meets on the 2nd Wednesday, as many PACs do.
+    crate::meetings::Rule { week: 2, weekday: chrono::Weekday::Wed, skip_months: vec![7, 8] }.save(pool).await?;
     sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").bind(DEMO_MARKER).execute(pool).await?;
     Ok(())
 }
@@ -917,6 +919,7 @@ pub async fn reset(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Res
         "rules",
         "budget_amounts",
         "fundraiser_goals",
+        "meetings",
         "transactions",
         "import_batches",
         "gaming_events",
