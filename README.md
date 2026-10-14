@@ -131,6 +131,10 @@ All records are in the data folder:
 
 **Settings → Download a backup** makes a zip of the database, receipts, and bank files. To hand over to the next treasurer, give them the data folder and the program.
 
+**Settings → Restore a backup** puts such a zip back, in any copy of PAC Keeper: the desktop app, your own server, or the hosted app. So you can keep the books on your computer, then move them to a hosted PAC (or back). The restore replaces the PAC's records: transactions, budgets, receipts, bank files, and settings. Sign-in users and hosted members stay. Before it starts, PAC Keeper keeps a copy of the records you had, which **Download the records from before the restore** gives back.
+
+A restore takes only a zip that PAC Keeper made, from this version or an older one: the database must pass SQLite's integrity check, have exactly PAC Keeper's tables, and name only plain receipt files. On a hosted server the receipts must fit the PAC's storage, and hot lunch children and orders of parents who are not in that PAC are left out.
+
 The gaming grant conditions require you to keep receipts and bank statements for 5 years after the year the money was spent.
 
 ## Running on a server

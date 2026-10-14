@@ -15,6 +15,8 @@ mod lunch_tests;
 mod meetings;
 mod reports;
 mod settings;
+#[cfg(test)]
+mod test_support;
 mod transactions;
 
 use std::path::PathBuf;
@@ -209,6 +211,9 @@ pub fn router(state: AppState) -> Router {
         .route("/family/orders/{id}/cancel", post(family::cancel))
         .route("/settings", get(settings::page).post(settings::save))
         .route("/settings/backup.zip", get(settings::backup))
+        .route("/settings/before-restore.zip", get(settings::before_restore))
+        // A backup can hold years of receipts; the handler checks the size as it saves.
+        .route("/settings/restore", post(settings::restore).layer(DefaultBodyLimit::max(9 * 1024 * 1024 * 1024)))
         .route("/accounts", get(accounts::list).post(accounts::create))
         .route("/accounts/{id}", get(accounts::edit).post(accounts::update))
         .route("/meetings", get(meetings::page).post(meetings::add))

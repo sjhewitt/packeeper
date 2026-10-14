@@ -4,6 +4,7 @@
 //! The library holds everything; `main.rs` is the command line and the
 //! `desktop` crate wraps the same server in an app window.
 
+pub mod backup;
 pub mod db;
 pub mod demo;
 pub mod fiscal;

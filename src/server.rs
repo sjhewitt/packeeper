@@ -232,6 +232,7 @@ pub enum FileUse {
 pub fn is_file_path(path: &str) -> bool {
     (path.starts_with("/reports/") && path.ends_with(".pdf"))
         || path == "/settings/backup.zip"
+        || path == "/settings/before-restore.zip"
         || path.strip_prefix("/attachments/").is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
 }
 

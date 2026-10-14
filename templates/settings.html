@@ -58,6 +58,15 @@
       {% endif %}
       {% endif %}
       <p class="small muted">Keep gaming grant records for at least 5 years after the year the money was spent.</p>
+      {% if layout.can_edit && layout.demo.is_none() %}
+      <h3>Restore a backup</h3>
+      <p class="small">Replace this PAC's records with a backup .zip from PAC Keeper, such as one from your own computer. It replaces the transactions, budgets, receipts, bank files, and settings.{% if hosted %} The members and their sign-ins stay.{% endif %} PAC Keeper first keeps a copy of the records you have now.</p>
+      <form method="post" action="/settings/restore" enctype="multipart/form-data" data-confirm="Replace all of this PAC's records with the backup? PAC Keeper keeps a copy of the records you have now.">
+        <div class="field"><input type="file" name="backup" accept=".zip,application/zip" required aria-label="Backup file"></div>
+        <button class="secondary">Restore the backup</button>
+      </form>
+      {% if before_restore %}<p class="small"><a href="/settings/before-restore.zip" target="{{ layout.new_tab() }}">Download the records from before the restore</a></p>{% endif %}
+      {% endif %}
     </div>
     {% if lunch_available %}
     <div class="panel">

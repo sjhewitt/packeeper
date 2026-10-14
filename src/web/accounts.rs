@@ -533,51 +533,10 @@ pub async fn delete_rule(state: Ctx, user: UserExt, UrlPath(id): UrlPath<i64>) -
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use axum::body::Body;
-    use axum::http::{Request, StatusCode, header};
+    use axum::http::StatusCode;
     use sqlx::SqlitePool;
-    use tower::ServiceExt;
 
-    use crate::web::{AppState, Single, router};
-
-    /// The example PAC on a local server with no sign-in.
-    async fn example(name: &str) -> (axum::Router, SqlitePool, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("pac-{name}-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let pool = crate::server::open_single(&dir).await.unwrap();
-        crate::demo::load_shifted(&pool, &dir, 0).await.unwrap();
-        let app = router(AppState {
-            single: Some(Single { pool: pool.clone(), data_dir: dir.clone() }),
-            hosted: None,
-            renderer: Arc::new(crate::reports::pdf::Renderer::new()),
-            pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
-            auth: false,
-            demo: None,
-            loopback_only: true,
-            desktop_secret: None,
-            lunch: None,
-            key: axum_extra::extract::cookie::Key::generate(),
-        });
-        (app, pool, dir)
-    }
-
-    /// Sends a request and returns the status, the redirect address, and the page.
-    async fn send(app: &axum::Router, method: &str, path: &str, form: &str) -> (StatusCode, String, String) {
-        let req = Request::builder()
-            .method(method)
-            .uri(path)
-            .header(header::HOST, "127.0.0.1:8080")
-            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .body(Body::from(form.to_string()))
-            .unwrap();
-        let res = app.clone().oneshot(req).await.unwrap();
-        let status = res.status();
-        let location = res.headers().get(header::LOCATION).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-        let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
-        (status, location, String::from_utf8_lossy(&body).into_owned())
-    }
+    use crate::web::test_support::{example, send};
 
     async fn one(pool: &SqlitePool, sql: &str, id: i64) -> Option<i64> {
         sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_string())).bind(id).fetch_one(pool).await.unwrap()

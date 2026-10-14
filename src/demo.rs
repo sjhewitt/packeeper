@@ -905,31 +905,7 @@ pub async fn reset(pool: &SqlitePool, data_dir: &std::path::Path) -> anyhow::Res
         );
     }
     // Children first, for the foreign keys.
-    for table in [
-        "lunch_order_lines",
-        "lunch_orders",
-        "lunch_children",
-        "lunch_day_items",
-        "lunch_days",
-        "lunch_periods",
-        "lunch_items",
-        "lunch_divisions",
-        "allocations",
-        "attachments",
-        "rules",
-        "budget_amounts",
-        "fundraiser_goals",
-        "meetings",
-        "transactions",
-        "import_batches",
-        "gaming_events",
-        "fundraisers",
-        "line_items",
-        "fiscal_years",
-        "accounts",
-        "settings",
-        "users",
-    ] {
+    for table in crate::backup::TABLES {
         sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}"))).execute(pool).await?;
     }
     for dir in ["receipts", "imports", "backups"] {

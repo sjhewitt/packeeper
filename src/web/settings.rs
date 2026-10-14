@@ -1,7 +1,7 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use askama::Template;
+use axum::extract::Multipart;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::{Form, Query};
@@ -23,6 +23,8 @@ struct SettingsPage {
     /// The server runs hot lunch, and whether this PAC has it on.
     lunch_available: bool,
     lunch_on: bool,
+    /// A copy of the records from before the last restore exists.
+    before_restore: bool,
 }
 
 const MONTHS: [&str; 12] = [
@@ -50,6 +52,7 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
         months: MONTHS.iter().enumerate().map(|(i, m)| (i as u32 + 1, *m)).collect(),
         lunch_available: state.lunch.is_some(),
         lunch_on: state.lunch.is_some() && crate::lunch::enabled(&state.pool).await?,
+        before_restore: before_restore_path(&state).exists(),
     })
 }
 
@@ -105,57 +108,127 @@ impl SettingsPage {
 pub async fn backup(state: Ctx, user: UserExt) -> AppResult<Response> {
     // The backup holds everything, including password hashes.
     require_edit(&user)?;
-    let dir = state.data_dir.join("backups");
-    tokio::fs::create_dir_all(&dir).await?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let snapshot = dir.join(format!("pac-{stamp}.db"));
-    // VACUUM INTO writes a consistent copy while the app keeps running.
-    sqlx::query("VACUUM INTO ?").bind(snapshot.display().to_string()).execute(&state.pool).await?;
-    let data_dir = state.data_dir.clone();
-    let snap = snapshot.clone();
-    let bytes = tokio::task::spawn_blocking(move || build_zip(&data_dir, &snap)).await??;
-    let _ = tokio::fs::remove_file(&snapshot).await;
-    let filename = format!("pac-keeper-backup-{stamp}.zip");
-    Ok((
+    let bytes = crate::backup::snapshot(&state.pool, &state.data_dir).await?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    Ok(zip_response(bytes, &format!("pac-keeper-backup-{stamp}.zip")))
+}
+
+fn zip_response(bytes: Vec<u8>, filename: &str) -> Response {
+    (
         [
             (header::CONTENT_TYPE, "application/zip".to_string()),
             (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\"")),
         ],
         bytes,
     )
-        .into_response())
+        .into_response()
 }
 
-fn build_zip(data_dir: &Path, snapshot: &Path) -> anyhow::Result<Vec<u8>> {
-    let mut buf = std::io::Cursor::new(Vec::new());
-    {
-        let mut zip = zip::ZipWriter::new(&mut buf);
-        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        zip.start_file("pac.db", opts)?;
-        zip.write_all(&std::fs::read(snapshot)?)?;
-        for sub in ["receipts", "imports"] {
-            for file in walk(&data_dir.join(sub)) {
-                let rel = file.strip_prefix(data_dir)?.to_string_lossy().replace('\\', "/");
-                zip.start_file(rel, opts)?;
-                zip.write_all(&std::fs::read(&file)?)?;
+fn before_restore_path(state: &Ctx) -> PathBuf {
+    state.data_dir.join("backups").join("before-restore.zip")
+}
+
+/// Replaces the PAC's records with a backup zip. See `crate::backup`.
+pub async fn restore(state: Ctx, user: UserExt, mut multipart: Multipart) -> AppResult<Response> {
+    require_edit(&user)?;
+    if let Some(refused) = super::no_uploads_in_demo(&state, "/settings") {
+        return Ok(refused);
+    }
+    let options = crate::backup::Options {
+        max_file_bytes: state.hosted.as_ref().map(|h| h.hosted.quota_bytes.max(0) as u64),
+        families: match &state.hosted {
+            Some(h) => Some(h.hosted.families(h.pac.id).await?.iter().map(|p| p.id).collect()),
+            None => None,
+        },
+    };
+    // Write the upload to a file as it arrives: a backup can be large.
+    let upload = state.data_dir.join(format!(".upload-{}.zip", chrono::Local::now().format("%Y%m%d%H%M%S%f")));
+    let saved = save_upload(&mut multipart, &upload, crate::backup::upload_limit(&options)).await;
+    let result = match saved {
+        Ok(true) => crate::backup::restore(&state.pool, &state.data_dir, &upload, &options).await,
+        Ok(false) => Err(anyhow::Error::new(crate::backup::Refused("Choose the backup file (.zip).".into()))),
+        Err(e) => Err(e),
+    };
+    let _ = tokio::fs::remove_file(&upload).await;
+    match result {
+        Ok(r) => {
+            let mut msg = format!(
+                "Backup restored: {} transactions and {} receipts. The records from before are under \"Download the records from before the restore\".",
+                r.transactions, r.receipts
+            );
+            if r.left_out_lunch {
+                msg.push_str(" Hot lunch children and orders of parents who are not in this PAC were left out.");
             }
+            Ok(redirect_ok("/settings", &msg))
         }
-        zip.finish()?;
+        Err(e) => match e.downcast_ref::<crate::backup::Refused>() {
+            Some(refused) => Ok(redirect_err("/settings", &refused.0)),
+            None => {
+                tracing::error!("restore failed: {e:#}");
+                Ok(redirect_err("/settings", "The backup could not be restored. Try again, or ask for help."))
+            }
+        },
     }
-    Ok(buf.into_inner())
 }
 
-fn walk(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return out };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            out.extend(walk(&p));
-        } else {
-            out.push(p);
+/// Writes the "backup" field of the form to `path`. False when there is none.
+async fn save_upload(multipart: &mut Multipart, path: &Path, limit: u64) -> anyhow::Result<bool> {
+    use tokio::io::AsyncWriteExt;
+    while let Some(mut field) = multipart.next_field().await? {
+        if field.name() != Some("backup") || field.file_name().is_none_or(str::is_empty) {
+            continue;
         }
+        let mut file = tokio::fs::File::create(path).await?;
+        let mut written = 0u64;
+        while let Some(chunk) = field.chunk().await? {
+            written += chunk.len() as u64;
+            if written > limit {
+                return Err(crate::backup::Refused("The backup is larger than this PAC may store.".into()).into());
+            }
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        return Ok(written > 0);
     }
-    out.sort();
-    out
+    Ok(false)
+}
+
+/// The records from before the last restore.
+pub async fn before_restore(state: Ctx, user: UserExt) -> AppResult<Response> {
+    require_edit(&user)?;
+    let bytes = tokio::fs::read(before_restore_path(&state)).await.map_err(|_| super::AppError::NotFound)?;
+    Ok(zip_response(bytes, "pac-keeper-before-restore.zip"))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+
+    use crate::web::test_support::{example, send, send_file};
+
+    /// A backup goes back in through Settings, and the records from before can be downloaded.
+    #[tokio::test]
+    async fn a_backup_restores_from_the_settings_page() {
+        let (app, pool, dir) = example("restore-web").await;
+        let backup = crate::backup::snapshot(&pool, &dir).await.unwrap();
+        sqlx::query("UPDATE settings SET value = 'Changed PAC' WHERE key = 'pac_name'").execute(&pool).await.unwrap();
+
+        let (_, _, page) = send(&app, "GET", "/settings", "").await;
+        assert!(page.contains("Restore the backup") && !page.contains("before-restore.zip"));
+        let (status, location) = send_file(&app, "/settings/restore", "backup", "pac.zip", &backup).await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        assert!(location.contains("msg=Backup%20restored"), "{location}");
+        assert_eq!(crate::db::Settings::load(&pool).await.unwrap().pac_name, "Example Elementary PAC");
+
+        let (_, location) = send_file(&app, "/settings/restore", "backup", "notes.zip", b"not a zip").await;
+        assert!(location.contains("err=This%20is%20not%20a%20PAC%20Keeper%20backup"), "{location}");
+        let (_, location) = send_file(&app, "/settings/restore", "other", "pac.zip", &backup).await;
+        assert!(location.contains("err=Choose%20the%20backup"), "{location}");
+
+        let (_, _, page) = send(&app, "GET", "/settings", "").await;
+        assert!(page.contains("/settings/before-restore.zip"));
+        let (status, _, _) = send(&app, "GET", "/settings/before-restore.zip", "").await;
+        assert_eq!(status, StatusCode::OK);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
