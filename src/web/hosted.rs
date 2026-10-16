@@ -1214,7 +1214,7 @@ mod tests {
             auth: true,
             demo: None,
             loopback_only: false,
-            desktop_secret: None,
+            desktop: None,
             lunch: None,
             key: axum_extra::extract::cookie::Key::generate(),
         });
@@ -1293,7 +1293,7 @@ mod tests {
             auth: true,
             demo: None,
             loopback_only: false,
-            desktop_secret: None,
+            desktop: None,
             lunch: None,
             key: axum_extra::extract::cookie::Key::generate(),
         });
@@ -1386,7 +1386,7 @@ mod tests {
             auth: true,
             demo: None,
             loopback_only: false,
-            desktop_secret: None,
+            desktop: None,
             lunch: None,
             key: axum_extra::extract::cookie::Key::generate(),
         });

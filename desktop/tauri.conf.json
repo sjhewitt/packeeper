@@ -18,6 +18,7 @@
       "dmg",
       "nsis"
     ],
+    "createUpdaterArtifacts": true,
     "category": "Finance",
     "shortDescription": "Bookkeeping and reports for a BC school PAC",
     "longDescription": "PAC Keeper keeps the books of a BC school Parent Advisory Committee: bank imports, receipts, budgets, the gaming grant, and the monthly, AGM, and gaming reports.",
@@ -37,6 +38,18 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM2MERDRTEyNDZBNTk1RDIKUldUU2xhVkdFczROeGdtUW5LT0h0SFB4OHdrZ1RQY0xtL1BackhNK21BTHZUVDJVb09FYjhGQlkK",
+      "endpoints": [
+        "https://github.com/sjhewitt/packeeper/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

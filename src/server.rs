@@ -56,7 +56,7 @@ fn single_state(
         // names (against DNS rebinding). With sign-in on, it may sit behind a
         // reverse proxy that passes the public name.
         loopback_only: bind.ip().is_loopback() && !auth,
-        desktop_secret: None,
+        desktop: None,
         lunch: None,
         key: load_key(data_dir)?,
     })
@@ -169,7 +169,7 @@ pub async fn serve_hosted(
         auth: true,
         demo: None,
         loopback_only: false,
-        desktop_secret: None,
+        desktop: None,
         lunch,
         key,
     };
@@ -251,6 +251,33 @@ pub enum FileUse {
     Save,
 }
 
+/// What the desktop app knows about its new versions. The app changes it;
+/// Settings and the notice at the top of each page show it.
+#[derive(Debug, Default)]
+pub struct Updates(std::sync::Mutex<UpdateState>);
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UpdateState {
+    /// The app checks for new versions by itself.
+    pub automatic: bool,
+    /// A new version that the app downloaded. It installs when the app closes.
+    pub ready: Option<String>,
+}
+
+impl Updates {
+    pub fn new(automatic: bool) -> Updates {
+        Updates(std::sync::Mutex::new(UpdateState { automatic, ready: None }))
+    }
+
+    pub fn get(&self) -> UpdateState {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn change(&self, f: impl FnOnce(&mut UpdateState)) {
+        f(&mut self.0.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+}
+
 /// The addresses in the app that answer with a file, not a page.
 pub fn is_file_path(path: &str) -> bool {
     (path.starts_with("/reports/") && path.ends_with(".pdf"))
@@ -267,7 +294,7 @@ fn disposition_filename(disposition: &str) -> String {
     if clean.is_empty() { "file".to_string() } else { clean.to_string() }
 }
 
-pub async fn start_desktop(data_dir: &Path) -> anyhow::Result<DesktopServer> {
+pub async fn start_desktop(data_dir: &Path, updates: Arc<Updates>) -> anyhow::Result<DesktopServer> {
     let pool = open_single(data_dir).await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.context("listen on this computer")?;
     let addr = listener.local_addr()?;
@@ -275,7 +302,7 @@ pub async fn start_desktop(data_dir: &Path) -> anyhow::Result<DesktopServer> {
     rand::Rng::fill_bytes(&mut rand::rng(), &mut bytes);
     let secret = hex::encode(bytes);
     let mut state = single_state(pool, data_dir, addr, false)?;
-    state.desktop_secret = Some(secret.clone());
+    state.desktop = Some(web::Desktop { secret: secret.clone(), updates });
     let router = web::router(state);
     let serving = router.clone();
     tokio::spawn(async move {
@@ -330,6 +357,10 @@ mod tests {
     use super::*;
 
     async fn desktop() -> (DesktopServer, PathBuf) {
+        desktop_with(Arc::new(Updates::new(true))).await
+    }
+
+    async fn desktop_with(updates: Arc<Updates>) -> (DesktopServer, PathBuf) {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pac-desktop-test-{}-{}",
@@ -339,7 +370,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let pool = open_single(&dir).await.unwrap();
         demo::load_shifted(&pool, &dir, 0).await.unwrap();
-        (start_desktop(&dir).await.unwrap(), dir)
+        (start_desktop(&dir, updates).await.unwrap(), dir)
     }
 
     async fn send(d: &DesktopServer, req: Request<Body>) -> axum::response::Response {
@@ -397,6 +428,32 @@ mod tests {
         )
         .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn settings_show_the_app_updates() {
+        async fn settings(d: &DesktopServer) -> String {
+            let cookie = format!("{}={}", web::DESKTOP_COOKIE, d.secret);
+            let res = send(d, get(d, "/settings").header(header::COOKIE, cookie).body(Body::empty()).unwrap()).await;
+            assert_eq!(res.status(), StatusCode::OK);
+            String::from_utf8(axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap()
+        }
+        let updates = Arc::new(Updates::new(true));
+        let (d, dir) = desktop_with(updates.clone()).await;
+
+        let page = settings(&d).await;
+        assert!(page.contains("Automatic updates are on.") && page.contains("/__desktop/updates/off"));
+        assert!(!page.contains("is ready"), "no new version yet");
+
+        updates.change(|u| {
+            u.automatic = false;
+            u.ready = Some("9.9.9".into());
+        });
+        let page = settings(&d).await;
+        assert!(page.contains("Automatic updates are off.") && page.contains("/__desktop/updates/on"));
+        assert!(page.contains("PAC Keeper 9.9.9 is ready.") && page.contains("/__desktop/updates/restart"));
+        assert!(page.contains("update-banner"), "every page shows the new version");
         let _ = std::fs::remove_dir_all(dir);
     }
 

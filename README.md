@@ -55,6 +55,8 @@ The app keeps the records on the computer, in the app data folder:
 
 The records are not in Documents, because iCloud and OneDrive often sync Documents, and syncing can damage a database that is open. **Settings → Show the folder** opens the folder. **Settings → Save a backup** puts a zip in Downloads. To move the records to another computer, close PAC Keeper on both computers, then copy the folder.
 
+The app updates itself. It looks for a new version when it starts and once a day, downloads it from the GitHub releases, and checks its signature. The new version installs when you close PAC Keeper. **Settings → Updates** checks at once, installs a downloaded version now, and turns automatic updates off. An update keeps your records. PAC Keeper 0.4.0 and older do not update themselves: install the next version by hand once.
+
 The app is the same program as the server below, in a native window. Only the app window can open the records: the server listens on this computer only and needs a secret that changes on every start. PDFs and receipts open in the computer's viewer. Other attached files are saved in Downloads and never opened, so a file cannot run by a click.
 
 ## Start
@@ -559,7 +561,11 @@ npm run tauri build -- --bundles nsis              # Windows: the installer
 
 `PAC_DATA_DIR` makes the app use another folder, for example a copy of the example data.
 
+A build also makes the update files, so it needs the updater's private key. Set `TAURI_SIGNING_PRIVATE_KEY` to the key file (or its text) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to its password. Without the key, add `--config '{"bundle":{"createUpdaterArtifacts":false}}'` to the build command. A development build (`tauri dev`) looks for new versions when you click Check now, but never installs them.
+
 `.github/workflows/release.yml` ("Release builds") builds both apps, and the Linux server program, on GitHub Actions. Run it from the Actions tab to get the files as build artifacts. Push a tag such as `v0.2.0` to also make a draft release with the files attached. Check the draft, then publish it.
+
+Publishing a release also sends it to the installed apps: they read `latest.json` from the newest published release. The workflow signs the update files with the key in the secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Its public half is `plugins.updater.pubkey` in `desktop/tauri.conf.json`. Keep a copy of the key and its password in a safe place. If you lose them, the installed apps cannot update, and each treasurer must install the next version by hand.
 
 To sign the apps later, add an Apple Developer ID certificate and notarization secrets for macOS, and a code-signing certificate for Windows. See the Tauri guides on [macOS signing](https://tauri.app/distribute/sign/macos/) and [Windows signing](https://tauri.app/distribute/sign/windows/).
 

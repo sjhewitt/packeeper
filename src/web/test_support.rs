@@ -23,7 +23,7 @@ pub async fn example(name: &str) -> (axum::Router, SqlitePool, std::path::PathBu
         auth: false,
         demo: None,
         loopback_only: true,
-        desktop_secret: None,
+        desktop: None,
         lunch: None,
         key: axum_extra::extract::cookie::Key::generate(),
     });

@@ -55,8 +55,9 @@ pub struct AppState {
     /// The server listens on this computer only. It then answers only requests
     /// addressed to this computer, so a website cannot reach it by DNS rebinding.
     pub loopback_only: bool,
-    /// In the desktop app: the secret that the app window holds.
-    pub desktop_secret: Option<String>,
+    /// In the desktop app: the secret that the app window holds, and the
+    /// app's updates.
+    pub desktop: Option<Desktop>,
     /// Hot lunch ordering, when the hosted server runs with --hot-lunch.
     pub lunch: Option<Arc<crate::lunch::Lunch>>,
     pub key: Key,
@@ -66,6 +67,15 @@ pub struct AppState {
 pub struct Single {
     pub pool: SqlitePool,
     pub data_dir: PathBuf,
+}
+
+/// What the desktop app gives its server.
+#[derive(Clone)]
+pub struct Desktop {
+    /// The app window proves itself with this secret; see `auth`.
+    pub secret: String,
+    /// New versions of the app. Settings and the notice on each page show them.
+    pub updates: Arc<crate::server::Updates>,
 }
 
 impl FromRef<AppState> for Key {
@@ -90,6 +100,8 @@ pub struct Ctx {
     pub demo: Option<u32>,
     /// Inside the desktop app: files open in the computer's own apps.
     pub desktop: bool,
+    /// Inside the desktop app: its new versions.
+    pub updates: Option<Arc<crate::server::Updates>>,
     pub hosted: Option<HostedCtx>,
     /// Hot lunch, on a hosted server with --hot-lunch. Each PAC also turns it on.
     pub lunch: Option<Arc<crate::lunch::Lunch>>,
@@ -120,7 +132,8 @@ impl Ctx {
             pdf_permits: app.pdf_permits.clone(),
             auth: app.auth || hosted.is_some(),
             demo: app.demo,
-            desktop: app.desktop_secret.is_some(),
+            desktop: app.desktop.is_some(),
+            updates: app.desktop.as_ref().map(|d| d.updates.clone()),
             lunch: app.lunch.clone().filter(|_| hosted.is_some()),
             hosted,
         }
@@ -304,6 +317,8 @@ pub struct Layout {
     /// Inside the desktop app. Links to files then open in the same window,
     /// where the app hands them to the computer's own viewer.
     pub desktop: bool,
+    /// In the desktop app: a new version that installs when the app closes.
+    pub update_ready: Option<String>,
     /// Hot lunch is on for this PAC: the nav shows it.
     pub lunch: bool,
 }
@@ -366,6 +381,7 @@ impl Layout {
             demo: state.demo,
             hosted: state.hosted.as_ref().map(|h| (h.pac_count, h.person.is_operator)),
             desktop: state.desktop,
+            update_ready: state.updates.as_ref().and_then(|u| u.get().ready),
             lunch: state.lunch.is_some() && crate::lunch::enabled(&state.pool).await?,
         })
     }

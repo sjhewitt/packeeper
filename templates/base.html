@@ -31,6 +31,9 @@
   {% if let Some(minutes) = layout.demo %}
   <div class="demo-banner">This is the public PAC Keeper demo with made-up data. Other visitors see your changes. The data resets every {{ minutes }} minutes, and file uploads are off.</div>
   {% endif %}
+  {% if let Some(version) = layout.update_ready %}
+  <div class="update-banner no-print">PAC Keeper {{ version }} is ready. It installs when you close PAC Keeper. <a href="/__desktop/updates/restart">Restart and update now</a></div>
+  {% endif %}
   <main>
     {% if let Some(m) = layout.flash_ok %}<div class="flash ok">{{ m }}</div>{% endif %}
     {% if let Some(m) = layout.flash_err %}<div class="flash err">{{ m }}</div>{% endif %}

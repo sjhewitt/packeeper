@@ -25,6 +25,8 @@ struct SettingsPage {
     lunch_on: bool,
     /// A copy of the records from before the last restore exists.
     before_restore: bool,
+    /// In the desktop app: automatic updates, and a new version that is ready.
+    updates: Option<crate::server::UpdateState>,
 }
 
 const MONTHS: [&str; 12] = [
@@ -53,6 +55,7 @@ pub async fn page(state: Ctx, user: UserExt, Query(flash): Query<Flash>) -> AppR
         lunch_available: state.lunch.is_some(),
         lunch_on: state.lunch.is_some() && crate::lunch::enabled(&state.pool).await?,
         before_restore: before_restore_path(&state).exists(),
+        updates: state.updates.as_ref().map(|u| u.get()),
     })
 }
 

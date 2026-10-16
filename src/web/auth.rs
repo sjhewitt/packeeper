@@ -132,12 +132,12 @@ pub async fn guard(State(app): State<AppState>, jar: PrivateCookieJar, mut req: 
     if app.loopback_only && !addressed_to_this_computer(&req) {
         return AppError::Forbidden.into_response();
     }
-    if let Some(secret) = &app.desktop_secret
-        && let Some(refused) = desktop_check(secret, &req)
+    if let Some(desktop) = &app.desktop
+        && let Some(refused) = desktop_check(&desktop.secret, &req)
     {
         return refused;
     }
-    if (app.auth || app.hosted.is_some() || app.desktop_secret.is_some()) && !same_site_request(&req) {
+    if (app.auth || app.hosted.is_some() || app.desktop.is_some()) && !same_site_request(&req) {
         return AppError::Forbidden.into_response();
     }
     if let Some(hosted) = app.hosted.clone() {

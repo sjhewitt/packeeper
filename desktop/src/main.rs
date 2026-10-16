@@ -5,18 +5,23 @@
 // No console window on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod updates;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pac_keeper::server::{self, DesktopFile, DesktopServer, FileUse};
 use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
 const WINDOW: &str = "main";
 
 /// The address of the in-app button that shows the data folder.
 const DATA_FOLDER_PATH: &str = "/__desktop/data-folder";
+
+/// The addresses of the Updates buttons in Settings; see `updates::act`.
+const UPDATES_PATH: &str = "/__desktop/updates/";
 
 fn main() {
     tracing_subscriber::fmt()
@@ -36,11 +41,17 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             clear_viewer_files();
+            let app_updates = updates::AppUpdates::load(&handle);
+            let shared = app_updates.shared.clone();
+            app.manage(app_updates);
+            // Also when the records do not open: a new version may fix that.
+            updates::start(&handle);
             let opened = data_dir(&handle).and_then(|dir| {
-                tauri::async_runtime::block_on(server::start_desktop(&dir))
+                tauri::async_runtime::block_on(server::start_desktop(&dir, shared))
                     .map_err(|e| anyhow::anyhow!("PAC Keeper could not open its records in {}: {e:#}", dir.display()))
             });
             match opened {
@@ -55,8 +66,13 @@ fn main() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("PAC Keeper could not start");
+        .build(tauri::generate_context!())
+        .expect("PAC Keeper could not start")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                updates::install_on_exit(app);
+            }
+        });
 }
 
 /// The records live in the computer's app data folder, not in Documents:
@@ -119,6 +135,10 @@ fn route(app: &AppHandle, server: &Arc<DesktopServer>, let_through: &Arc<Mutex<O
     tracing::debug!("navigation to {path}");
     if let_through.lock().unwrap().take_if(|through| through == path).is_some() {
         return true;
+    }
+    if let Some(action) = path.strip_prefix(UPDATES_PATH) {
+        updates::act(app, action);
+        return false;
     }
     if path == DATA_FOLDER_PATH {
         if let Err(e) = app.opener().open_path(server.data_dir.display().to_string(), None::<&str>) {
@@ -212,13 +232,15 @@ fn free_name(dir: &Path, filename: &str) -> PathBuf {
     path
 }
 
-/// Shows a message at the top of the page, like the app's own messages.
+/// Shows a message at the top of the page, like the app's own messages. It
+/// takes the place of the app's previous message.
 fn flash(app: &AppHandle, ok: bool, message: &str) {
     let Some(window) = app.get_webview_window(WINDOW) else { return };
     let script = format!(
         "(function (m) {{ var main = document.querySelector('main'); if (!main) return; \
-         var d = document.createElement('div'); d.className = 'flash {}'; d.textContent = m; \
-         main.prepend(d); window.scrollTo(0, 0); }})({});",
+         var old = document.getElementById('desktop-flash'); if (old) old.remove(); \
+         var d = document.createElement('div'); d.id = 'desktop-flash'; d.className = 'flash {}'; \
+         d.textContent = m; main.prepend(d); window.scrollTo(0, 0); }})({});",
         if ok { "ok" } else { "err" },
         serde_json::to_string(message).unwrap_or_default()
     );

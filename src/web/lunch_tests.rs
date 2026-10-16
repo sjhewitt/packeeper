@@ -127,7 +127,7 @@ async fn site_with(stripe_base: &str, helcim_base: &str) -> Site {
         auth: true,
         demo: None,
         loopback_only: false,
-        desktop_secret: None,
+        desktop: None,
         lunch: Some(lunch.clone()),
         key: axum_extra::extract::cookie::Key::generate(),
     });
@@ -282,7 +282,7 @@ async fn without_the_flag_there_is_no_hot_lunch() {
         auth: true,
         demo: None,
         loopback_only: false,
-        desktop_secret: None,
+        desktop: None,
         lunch: None,
         key: axum_extra::extract::cookie::Key::generate(),
     });

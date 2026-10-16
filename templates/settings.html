@@ -91,6 +91,23 @@
       <p class="small">Sign-in is off: the app runs on this computer only. To share it with the executive, run it on a server with <code>pac-keeper serve --auth</code>.</p>
       {% endif %}
     </div>
+    {% if let Some(u) = updates %}
+    <div class="panel">
+      <h2>Updates</h2>
+      {% if let Some(version) = u.ready %}
+      <p class="small">PAC Keeper {{ version }} is ready. It installs when you close PAC Keeper.</p>
+      <p><a class="button" href="/__desktop/updates/restart">Restart and update now</a></p>
+      {% endif %}
+      {% if u.automatic %}
+      <p class="small">Automatic updates are on. PAC Keeper looks for a new version when it starts and once a day. It downloads the new version, then installs it when you close PAC Keeper. An update keeps your records.</p>
+      <p><a class="button secondary" href="/__desktop/updates/check">Check now</a> <a class="button secondary" href="/__desktop/updates/off">Turn automatic updates off</a></p>
+      {% else %}
+      <p class="small">Automatic updates are off. PAC Keeper looks for a new version only when you click Check now.</p>
+      <p><a class="button secondary" href="/__desktop/updates/check">Check now</a> <a class="button secondary" href="/__desktop/updates/on">Turn automatic updates on</a></p>
+      {% endif %}
+      <p class="small muted">This is version {{ layout.app_version() }}. New versions come from PAC Keeper's releases page on GitHub, and the app checks their signature before it installs them.</p>
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
