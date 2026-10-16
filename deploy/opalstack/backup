@@ -1,0 +1,97 @@
+#!/bin/bash
+# Backs up the records of every PAC Keeper app on an Opalstack account,
+# except the demo. Cron runs it every night; see "Backups to S3" in the
+# README. The upgrade script installs it as ~/bin/pac-keeper-backup.
+#
+# For each app, it puts a dated copy in ~/pac-keeper-backups/APPNAME/ and
+# keeps the newest copies there. When ~/pac-keeper-backup.env names a restic
+# repository, it also sends the new copies there, encrypted, and forgets old
+# snapshots. See backup.env.example for the settings.
+set -euo pipefail
+shopt -s nullglob
+
+BIN="$HOME/bin/pac-keeper"
+BACKUPS="$HOME/pac-keeper-backups"
+SETTINGS="${PAC_BACKUP_SETTINGS:-$HOME/pac-keeper-backup.env}"
+# The folder names that `pac-keeper backup` makes, such as 20261016-223000.
+STAMP='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]'
+
+if [ -f "$SETTINGS" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  . "$SETTINGS"
+  set +a
+fi
+KEEP="${PAC_BACKUP_KEEP_LOCAL:-7}"
+RESTIC="${PAC_RESTIC:-$HOME/bin/restic}"
+PING="${PAC_BACKUP_PING_URL:-}"
+
+# Give the health check the exit status (Healthchecks.io: 0 is success).
+# The check sends an email when a status is not 0, or when no ping comes.
+report() {
+  local status=$?
+  if [ -n "$PING" ]; then
+    curl -fsS -m 10 --retry 3 -o /dev/null "$PING/$status" || true
+  fi
+}
+trap report EXIT
+
+if ! [[ "$KEEP" =~ ^[1-9][0-9]*$ ]]; then
+  echo "PAC_BACKUP_KEEP_LOCAL must be a whole number from 1." >&2
+  exit 1
+fi
+
+# One setting from an app's env file.
+setting() {
+  (
+    set -a
+    # shellcheck source=/dev/null
+    . "$1/env"
+    printf '%s' "${!2:-}"
+  )
+}
+
+# Keep the newest KEEP dated copies in a folder, and delete the others.
+prune() {
+  local copies=("$1"/$STAMP)
+  local i
+  for ((i = 0; i < ${#copies[@]} - KEEP; i++)); do
+    rm -rf "${copies[i]}"
+  done
+}
+
+new=()
+for app in "$HOME"/apps/*/; do
+  app="${app%/}"
+  if [ ! -f "$app/env" ] || [ ! -f "$app/start" ] || [ ! -f "$app/stop" ]; then
+    continue
+  fi
+  data="$(setting "$app" PAC_DATA_DIR)"
+  # The demo reloads its example data, so it has nothing to keep.
+  if [ "$(setting "$app" PAC_DEMO)" = 1 ] || [ ! -d "$data" ]; then
+    continue
+  fi
+  echo "$(date '+%F %T') ${app##*/}"
+  "$BIN" --data-dir "$data" backup --to "$BACKUPS/${app##*/}"
+  copies=("$BACKUPS/${app##*/}"/$STAMP)
+  new+=("${copies[${#copies[@]} - 1]}")
+  prune "$BACKUPS/${app##*/}"
+done
+# Copies from before each app had its own folder.
+prune "$BACKUPS"
+
+if [ ${#new[@]} -eq 0 ]; then
+  echo "There is no PAC Keeper app with records in ~/apps." >&2
+  exit 1
+fi
+
+if [ -z "${RESTIC_REPOSITORY:-}" ]; then
+  echo "$(date '+%F %T') No off-site copy: $SETTINGS does not set RESTIC_REPOSITORY."
+  exit 0
+fi
+echo "$(date '+%F %T') Off-site copy to $RESTIC_REPOSITORY"
+"$RESTIC" backup --tag pac-keeper "${new[@]}"
+# The paths change every night, so group the snapshots by the tag only.
+"$RESTIC" forget --quiet --tag pac-keeper --group-by tags \
+  --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
+echo "$(date '+%F %T') Done"

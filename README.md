@@ -211,7 +211,7 @@ PAC_STATS_GITHUB=sjhewitt/packeeper
 - **Days are in UTC.** The first day in a log can be there only in part, so its counts never go down. Later days are read again in full every hour.
 - **On the command line:** `pac-keeper --data-dir DIR stats` prints the same counts. Add `--now` to read the logs first (it needs the `PAC_STATS_*` settings).
 
-**Backups are your job as the operator.** `pac-keeper --data-dir DIR backup --to BACKUP_DIR` copies every database, receipt, and bank file into a dated folder. It is safe while the server runs. Run it every night (from cron or a systemd timer), copy the result off the server (for example with `rclone` to encrypted storage), and test a restore. Before you take real PAC data, also:
+**Backups are your job as the operator.** `pac-keeper --data-dir DIR backup --to BACKUP_DIR` copies every database, receipt, and bank file into a dated folder. It is safe while the server runs. Run it every night (from cron or a systemd timer), copy the result off the server to encrypted storage, and test a restore. On Opalstack, the `backup` script does this; see [Backups to S3](#backups-to-s3). Before you take real PAC data, also:
 
 - publish a privacy policy and terms of service
 - get advice on your obligations under BC's privacy law (PIPA)
@@ -311,6 +311,7 @@ demo.packeeper.ca {
    curl -LO https://github.com/sjhewitt/packeeper/releases/latest/download/pac-keeper-linux-x86_64.tar.gz
    tar -xzf pac-keeper-linux-x86_64.tar.gz
    cp pac-keeper/pac-keeper ~/bin/ && ~/bin/pac-keeper --version
+   install -m 755 pac-keeper/backup ~/bin/pac-keeper-backup
    ```
 
 2. **Domains.** In the dashboard, add `packeeper.ca` and `packeeper.com`, with the subdomains `www`, `demo`, and `app`. Point their DNS at your Opalstack server.
@@ -350,10 +351,9 @@ demo.packeeper.ca {
    ```
    */10 * * * * $HOME/apps/pk_demo/start > /dev/null 2>&1
    */10 * * * * $HOME/apps/pk_app/start > /dev/null 2>&1
-   0 3 * * * $HOME/bin/pac-keeper --data-dir $HOME/pac-keeper-data/hosted backup --to $HOME/pac-keeper-backups > /dev/null 2>&1
    ```
 
-   The last line makes a backup every night. Copy the backups off the server too, and delete old ones.
+   Then set up the nightly backup: see [Backups to S3](#backups-to-s3).
 
 8. **Sites.** In the dashboard, create one site for each address. Turn on the Let's Encrypt certificate and the redirect to HTTPS for each.
    - `packeeper.ca` and `www.packeeper.ca`: app `pk_site` at `/`
@@ -363,7 +363,82 @@ demo.packeeper.ca {
 
 9. **Check.** On the demo, sign in and change a line item. This checks that form posts pass through the proxy. On the hosted server, sign up with a second email address, check that the email arrives, and approve the PAC on `/operator`.
 
-**Upgrades.** Publish a release, and the Deploy workflow installs it (see below). By hand: download the release as in step 1, then run `~/downloads/pac-keeper/upgrade ~/downloads/pac-keeper`. The script backs up each hosted server's records, installs the new program and scripts, restarts every PAC Keeper app in `~/apps`, and checks that each one answers. If one does not, it puts the previous program back.
+**Upgrades.** Publish a release, and the Deploy workflow installs it (see below). By hand: download the release as in step 1, then run `~/downloads/pac-keeper/upgrade ~/downloads/pac-keeper`. The script backs up each hosted server's records to `~/pac-keeper-backups/APPNAME/`, installs the new program and scripts, restarts every PAC Keeper app in `~/apps`, and checks that each one answers. If one does not, it puts the previous program back.
+
+### Backups to S3
+
+`~/bin/pac-keeper-backup` (the `backup` script, which `upgrade` installs) backs up every app that is not the demo. For each app, it puts a dated copy in `~/pac-keeper-backups/APPNAME/` and keeps the newest 7. Then it sends the new copies to an S3 bucket with [restic](https://restic.net). Restic encrypts the backups before they leave the server. It stores a file that does not change only once, so each receipt uses space one time. The script keeps 14 daily, 8 weekly, and 12 monthly snapshots.
+
+Set it up once:
+
+1. **The bucket.** Run these on your computer, with the AWS CLI signed in to your AWS account. Use a bucket name of your own. Versioning keeps each deleted or replaced file for 30 more days, so a stolen key cannot destroy the backups. New buckets block public access.
+
+   ```sh
+   BUCKET=pac-keeper-backups-EXAMPLE
+   aws s3api create-bucket --bucket $BUCKET --region ca-central-1 \
+     --create-bucket-configuration LocationConstraint=ca-central-1
+   aws s3api put-bucket-versioning --bucket $BUCKET --versioning-configuration Status=Enabled
+   aws s3api put-bucket-lifecycle-configuration --bucket $BUCKET --lifecycle-configuration '{"Rules": [{
+     "ID": "old-versions", "Status": "Enabled", "Filter": {},
+     "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+     "Expiration": {"ExpiredObjectDeleteMarker": true},
+     "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}}]}'
+   ```
+
+2. **A user for the server.** It can read and write files in the bucket only. It cannot delete old versions or change the bucket's settings. The last command shows the access key.
+
+   ```sh
+   aws iam create-user --user-name pac-keeper-backup
+   aws iam put-user-policy --user-name pac-keeper-backup --policy-name bucket --policy-document '{
+     "Version": "2012-10-17",
+     "Statement": [
+       {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:GetBucketLocation"], "Resource": "arn:aws:s3:::'$BUCKET'"},
+       {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], "Resource": "arn:aws:s3:::'$BUCKET'/*"}]}'
+   aws iam create-access-key --user-name pac-keeper-backup
+   ```
+
+3. **Restic.** On the server, install the program. `self-update` then gets the newest release.
+
+   ```sh
+   cd ~/downloads
+   curl -LO https://github.com/restic/restic/releases/download/v0.18.0/restic_0.18.0_linux_amd64.bz2
+   bunzip2 restic_0.18.0_linux_amd64.bz2
+   install -m 755 restic_0.18.0_linux_amd64 ~/bin/restic
+   ~/bin/restic self-update
+   ```
+
+4. **The settings.** Copy `backup.env.example` from the release package in `~/downloads` to `~/pac-keeper-backup.env`, and run `chmod 600 ~/pac-keeper-backup.env`. Fill in the bucket name, the access key, and a new password (`openssl rand -base64 32` makes one). Then make the repository and run the first backup:
+
+   ```sh
+   (set -a; . ~/pac-keeper-backup.env; ~/bin/restic init)
+   ~/bin/pac-keeper-backup
+   ```
+
+5. **Your password manager.** The backups do not hold these three things. Keep them there:
+   - `RESTIC_PASSWORD`. Without it, nobody can read the backups.
+   - The server's `secret.key`, as text: `base64 ~/pac-keeper-data/hosted/secret.key`. The backup leaves it out on purpose, because it opens the PACs' sealed Helcim tokens. Without it, a restored server works, but every person must sign in again and every PAC must enter its Helcim token again.
+   - The secrets in `~/apps/pk_app/env`, such as the SMTP password and the Stripe keys.
+
+6. **An alert.** On [Healthchecks.io](https://healthchecks.io), make a check with a period of 1 day and a grace time of 2 hours. Put its ping URL in `PAC_BACKUP_PING_URL`. You then get an email when a backup fails or does not run.
+
+7. **Every night.** Add this line with `crontab -e`:
+
+   ```
+   30 22 * * * $HOME/bin/pac-keeper-backup >> $HOME/pac-keeper-backups/backup.log 2>&1
+   ```
+
+   Cron uses the server's time zone (`date` shows it). The line expects UTC. Opalstack makes its own copy of the server at about 23:00 UTC, so that copy also gets the new backup.
+
+**Restore.** List the snapshots, and get the newest one back into `~/restore`:
+
+```sh
+(set -a; . ~/pac-keeper-backup.env; ~/bin/restic snapshots)
+(set -a; . ~/pac-keeper-backup.env; ~/bin/restic restore latest --target ~/restore)
+```
+
+The records are in `~/restore/home/USER/pac-keeper-backups/pk_app/DATE/`: `control.db`, and `pacs/` with each PAC's database, receipts, and bank files. To put back all the records, stop the app, move its data folder away, and copy the restored folder to its place. Then put back `secret.key` (`base64 -d > secret.key` and `chmod 600 secret.key`), and start the app. To put back one PAC only, stop the app and replace only that PAC's folder in `pacs/`.
+
+Test a restore every few months. Restore as above, then run `~/bin/pac-keeper --data-dir ~/restore/home/USER/pac-keeper-backups/pk_app/DATE stats`: it opens `control.db` and prints the counts. Then delete `~/restore`.
 
 ### Automatic deploys
 

@@ -67,7 +67,7 @@ echo "Installing $NEW_VERSION in: ${apps[*]##*/}"
 if [ -x "$BIN" ]; then
   for app in "${apps[@]}"; do
     if [ "$(setting "$app" PAC_HOSTED)" = 1 ] && [ -d "$(setting "$app" PAC_DATA_DIR)" ]; then
-      "$BIN" --data-dir "$(setting "$app" PAC_DATA_DIR)" backup --to "$HOME/pac-keeper-backups"
+      "$BIN" --data-dir "$(setting "$app" PAC_DATA_DIR)" backup --to "$HOME/pac-keeper-backups/${app##*/}"
     fi
   done
   cp "$BIN" "$BIN.previous"
@@ -78,6 +78,7 @@ for app in "${apps[@]}"; do
 done
 mkdir -p "$(dirname "$BIN")"
 install -m 755 "$NEW" "$BIN"
+install -m 755 "$PKG/backup" "$(dirname "$BIN")/pac-keeper-backup"
 for app in "${apps[@]}"; do
   cp "$PKG/start" "$PKG/stop" "$app/"
   "$app/start" || true
@@ -98,6 +99,6 @@ if [ -f "$BIN.previous" ]; then
     "$app/start" || true
   done
   echo "The previous program runs again. If it cannot open a database that the new version updated," >&2
-  echo "restore the records from the newest backup in ~/pac-keeper-backups." >&2
+  echo "restore the records from the newest backup in ~/pac-keeper-backups/APPNAME." >&2
 fi
 exit 1

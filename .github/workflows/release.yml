@@ -111,7 +111,7 @@ jobs:
         run: |
           mkdir -p dist/pac-keeper
           cp target/x86_64-unknown-linux-musl/release/pac-keeper dist/pac-keeper/
-          cp deploy/opalstack/start deploy/opalstack/stop deploy/opalstack/upgrade deploy/opalstack/env.example dist/pac-keeper/
+          cp deploy/opalstack/start deploy/opalstack/stop deploy/opalstack/upgrade deploy/opalstack/env.example deploy/opalstack/backup deploy/opalstack/backup.env.example dist/pac-keeper/
           tar -C dist -czf pac-keeper-linux-x86_64.tar.gz pac-keeper
           ./dist/pac-keeper/pac-keeper --version
 
