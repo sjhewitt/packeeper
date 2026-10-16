@@ -72,7 +72,7 @@ for app in "$HOME"/apps/*/; do
     continue
   fi
   echo "$(date '+%F %T') ${app##*/}"
-  "$BIN" --data-dir "$data" backup --to "$BACKUPS/${app##*/}"
+  PAC_DATA_KEY="$(setting "$app" PAC_DATA_KEY)" "$BIN" --data-dir "$data" backup --to "$BACKUPS/${app##*/}"
   copies=("$BACKUPS/${app##*/}"/$STAMP)
   new+=("${copies[${#copies[@]} - 1]}")
   prune "$BACKUPS/${app##*/}"

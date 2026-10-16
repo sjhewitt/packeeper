@@ -80,6 +80,9 @@ impl FromRef<AppState> for Key {
 pub struct Ctx {
     pub pool: SqlitePool,
     pub data_dir: PathBuf,
+    /// Read and write receipts and bank files through this: on a hosted
+    /// server with PAC_DATA_KEY, they are sealed.
+    pub files: crate::crypt::Files,
     pub renderer: Arc<Renderer>,
     pub pdf_permits: Arc<tokio::sync::Semaphore>,
     /// Sign-in is on (always true on a hosted server).
@@ -102,10 +105,17 @@ pub struct HostedCtx {
 }
 
 impl Ctx {
-    fn new(app: &AppState, pool: SqlitePool, data_dir: PathBuf, hosted: Option<HostedCtx>) -> Ctx {
+    fn new(
+        app: &AppState,
+        pool: SqlitePool,
+        data_dir: PathBuf,
+        files: crate::crypt::Files,
+        hosted: Option<HostedCtx>,
+    ) -> Ctx {
         Ctx {
             pool,
             data_dir,
+            files,
             renderer: app.renderer.clone(),
             pdf_permits: app.pdf_permits.clone(),
             auth: app.auth || hosted.is_some(),

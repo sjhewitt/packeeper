@@ -11,17 +11,24 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use crate::models::{Account, LineItem};
 
 pub async fn open(data_dir: &Path) -> anyhow::Result<SqlitePool> {
+    open_with(data_dir, None).await
+}
+
+/// Opens `pac.db`, encrypted with `key` on a hosted server with PAC_DATA_KEY.
+pub async fn open_with(data_dir: &Path, key: Option<&crate::crypt::DbKey>) -> anyhow::Result<SqlitePool> {
     let path = data_dir.join("pac.db");
-    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
+    let mut options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .busy_timeout(Duration::from_secs(10));
-    let pool = SqlitePoolOptions::new()
-        .max_connections(4)
-        .connect_with(options)
-        .await
-        .with_context(|| format!("open database {}", path.display()))?;
+    if let Some(key) = key {
+        options = key.apply(options);
+    }
+    let pool = SqlitePoolOptions::new().max_connections(4).connect_with(options).await.with_context(|| {
+        let hint = if key.is_some() { " with PAC_DATA_KEY. Is it the key that encrypted it?" } else { "" };
+        format!("open database {}{hint}", path.display())
+    })?;
     sqlx::migrate!("./migrations").run(&pool).await.context("run migrations")?;
     Ok(pool)
 }

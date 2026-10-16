@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use axum_extra::extract::cookie::Key;
 
+use crate::crypt::DataKey;
 use crate::{db, demo, fiscal, hosted, reports, web};
 
 /// The database of a single-PAC folder. Refuses a hosted server's folder.
@@ -22,12 +23,19 @@ pub async fn open_single(dir: &Path) -> anyhow::Result<sqlx::SqlitePool> {
     Ok(pool)
 }
 
-pub async fn open_hosted(dir: &Path, base_url: String, quota_mb: i64) -> anyhow::Result<hosted::Hosted> {
+/// A hosted server's folder. With `data_key`, the records must be encrypted
+/// already; `serve_hosted` encrypts them.
+pub async fn open_hosted(
+    dir: &Path,
+    base_url: String,
+    quota_mb: i64,
+    data_key: Option<DataKey>,
+) -> anyhow::Result<hosted::Hosted> {
     if dir.join("pac.db").exists() {
         anyhow::bail!("{} holds one PAC's records. A hosted server needs its own, separate folder.", dir.display());
     }
     let mailer = hosted::mail::Mailer::from_env(dir.join("outbox"))?;
-    hosted::Hosted::open(dir, base_url, mailer, quota_mb * 1024 * 1024).await
+    hosted::Hosted::open(dir, base_url, mailer, quota_mb * 1024 * 1024, data_key).await
 }
 
 fn single_state(
@@ -99,21 +107,35 @@ pub async fn serve(
     Ok(())
 }
 
-/// Runs a hosted multi-PAC server until Ctrl-C.
+/// Runs a hosted multi-PAC server until Ctrl-C. With `data_key`, it first
+/// encrypts the records that are still plain.
 pub async fn serve_hosted(
     dir: &Path,
     bind: SocketAddr,
     base_url: String,
     quota_mb: i64,
     hot_lunch: bool,
+    data_key: Option<DataKey>,
 ) -> anyhow::Result<()> {
-    let mut hosted = open_hosted(dir, base_url, quota_mb).await?;
+    // Take the port first: if another server still runs here, stop before
+    // anything changes the records it has open.
+    let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
+    if let Some(key) = &data_key {
+        crate::crypt::encrypt_existing(dir, key).await.context("encrypt the records")?;
+    }
+    let encrypted = data_key.is_some();
+    let mut hosted = open_hosted(dir, base_url, quota_mb, data_key).await?;
     hosted.stats = crate::hosted::stats::Sources::from_env()?;
     let operators: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM people WHERE is_operator = 1").fetch_one(&hosted.control).await?;
     println!("PAC Keeper (hosted) is running at http://{bind}");
     println!("Public address: {}", hosted.base_url);
     println!("Data folder: {}", dir.canonicalize().unwrap_or(dir.to_path_buf()).display());
+    if encrypted {
+        println!("Records: encrypted with PAC_DATA_KEY");
+    } else {
+        println!("Records: not encrypted (no PAC_DATA_KEY)");
+    }
     println!("Email: {}", hosted.mailer.describe());
     if !hosted.stats.is_empty() {
         println!("Visit counts: {}, every hour", hosted.stats.describe());
@@ -134,6 +156,7 @@ pub async fn serve_hosted(
         println!("No operator yet. Add one with: pac-keeper --data-dir {} operator you@example.org", dir.display());
     }
     let hosted = Arc::new(hosted);
+    let closing = hosted.clone();
     crate::hosted::stats::spawn_hourly(hosted.clone());
     if let Some(lunch) = &lunch {
         web::spawn_helcim_checks(hosted.clone(), lunch.clone());
@@ -150,9 +173,9 @@ pub async fn serve_hosted(
         lunch,
         key,
     };
-    let listener = tokio::net::TcpListener::bind(bind).await.with_context(|| format!("listen on {bind}"))?;
-    axum::serve(listener, web::router(state)).with_graceful_shutdown(shutdown_signal()).await?;
-    Ok(())
+    let served = axum::serve(listener, web::router(state)).with_graceful_shutdown(shutdown_signal()).await;
+    closing.close().await;
+    Ok(served?)
 }
 
 /// The server inside the desktop app: listens on a free port on this computer

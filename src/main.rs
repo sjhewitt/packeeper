@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use pac_keeper::crypt::DataKey;
 use pac_keeper::{demo, fiscal, hosted, models, reports, server, web};
 
 #[derive(Parser)]
@@ -71,6 +72,7 @@ enum Command {
     },
     /// Copy every database, receipt, and bank file into a dated folder.
     /// Safe while the server runs. Works on a hosted or a single-PAC folder.
+    /// Encrypted records stay encrypted, so this needs PAC_DATA_KEY too.
     Backup {
         /// The folder that receives the dated copy.
         #[arg(long)]
@@ -91,6 +93,10 @@ enum Command {
     },
     /// Fill an empty data folder with an example PAC, to try the app.
     Demo,
+    /// Write a new key for PAC_DATA_KEY. With it, a hosted server encrypts its
+    /// records. Keep a copy away from the server: without the key, nobody can
+    /// read the records or the backups.
+    NewDataKey,
 }
 
 #[derive(Subcommand)]
@@ -132,6 +138,12 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
     let cli = Cli::parse();
+    if let Some(Command::NewDataKey) = cli.command {
+        println!("{}", DataKey::generate().to_hex());
+        eprintln!("Put this in the app's env file as PAC_DATA_KEY=\"...\", and keep a copy in your password manager.");
+        return Ok(());
+    }
+    let data_key = data_key()?;
     let dir = cli.data_dir.clone();
     std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
 
@@ -150,47 +162,76 @@ async fn main() -> anyhow::Result<()> {
             if demo {
                 anyhow::bail!("--demo runs on a single-PAC folder, not with --hosted");
             }
-            server::serve_hosted(&dir, bind, base_url, quota_mb, hot_lunch).await
+            server::serve_hosted(&dir, bind, base_url, quota_mb, hot_lunch, data_key).await
         }
         Command::Serve { bind, auth, demo, demo_reset_minutes, hot_lunch, .. } => {
+            single_folder(&data_key)?;
             if hot_lunch {
                 println!("Hot lunch needs a hosted server (--hosted), where parents can sign in. It stays off.");
             }
             let pool = server::open_single(&dir).await?;
             server::serve(pool, &dir, bind, auth, demo.then_some(demo_reset_minutes)).await
         }
-        Command::User { command } => users(&server::open_single(&dir).await?, command).await,
-        Command::Pdf { report, output } => pdf(&server::open_single(&dir).await?, report, output).await,
+        Command::User { command } => {
+            single_folder(&data_key)?;
+            users(&server::open_single(&dir).await?, command).await
+        }
+        Command::Pdf { report, output } => {
+            single_folder(&data_key)?;
+            pdf(&server::open_single(&dir).await?, report, output).await
+        }
         Command::Demo => {
+            single_folder(&data_key)?;
             demo::load(&server::open_single(&dir).await?, &dir).await?;
             println!("Loaded the example PAC. Start PAC Keeper with the same --data-dir and open it in a browser.");
             Ok(())
         }
-        Command::Operator { email, name } => operator(&dir, &email, &name).await,
+        Command::Operator { email, name } => operator(&dir, &email, &name, data_key).await,
         Command::Stats { now } => {
             if !dir.join("control.db").exists() {
                 anyhow::bail!("{} is not the data folder of a hosted server", dir.display());
             }
-            let hosted = server::open_hosted(&dir, String::new(), 1024).await?;
+            let hosted = server::open_hosted(&dir, String::new(), 1024, data_key).await?;
             if now {
                 hosted::stats::collect(&hosted.control, &hosted::stats::Sources::from_env()?).await?;
             }
             print!("{}", hosted::stats::report(&hosted.control).await?.text()?);
+            hosted.close().await;
             Ok(())
         }
         Command::Backup { to } => {
-            let dest = hosted::backup(&dir, &to).await?;
+            let dest = hosted::backup(&dir, &to, data_key.as_ref()).await?;
             println!("Copied every database, receipt, and bank file to {}", dest.display());
             Ok(())
         }
+        Command::NewDataKey => unreachable!("handled above"),
     }
 }
 
-async fn operator(dir: &Path, email: &str, name: &str) -> anyhow::Result<()> {
+/// The key in PAC_DATA_KEY, if any. Only the environment holds it, so it
+/// does not show in the list of running programs.
+fn data_key() -> anyhow::Result<Option<DataKey>> {
+    match std::env::var("PAC_DATA_KEY") {
+        Ok(text) if !text.trim().is_empty() => Ok(Some(DataKey::parse(&text)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Refuses PAC_DATA_KEY for a single-PAC folder, which PAC Keeper does not encrypt.
+fn single_folder(data_key: &Option<DataKey>) -> anyhow::Result<()> {
+    if data_key.is_some() {
+        anyhow::bail!(
+            "PAC_DATA_KEY is for a hosted server (serve --hosted). PAC Keeper does not encrypt a single-PAC folder."
+        );
+    }
+    Ok(())
+}
+
+async fn operator(dir: &Path, email: &str, name: &str, data_key: Option<DataKey>) -> anyhow::Result<()> {
     if !hosted::looks_like_email(email) {
         anyhow::bail!("{email} is not an email address");
     }
-    let hosted = server::open_hosted(dir, String::new(), 1024).await?;
+    let hosted = server::open_hosted(dir, String::new(), 1024, data_key).await?;
     let person = hosted.ensure_person(&email.to_lowercase(), name).await?;
     if person.password_hash.is_none() {
         let password = read_password(email)?;
@@ -198,6 +239,7 @@ async fn operator(dir: &Path, email: &str, name: &str) -> anyhow::Result<()> {
     }
     hosted.mark_verified(person.id).await?;
     sqlx::query("UPDATE people SET is_operator = 1 WHERE id = ?").bind(person.id).execute(&hosted.control).await?;
+    hosted.close().await;
     println!("{email} is an operator. Sign in, then open /operator to approve PACs.");
     Ok(())
 }

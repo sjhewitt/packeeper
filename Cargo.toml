@@ -39,6 +39,20 @@ typst-pdf = "0.15"
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
 
+# SQLCipher in place of SQLite, so that a hosted server can encrypt its records
+# (PAC_DATA_KEY). It uses Apple's crypto on a Mac and a built-in OpenSSL on
+# Linux. With no key, it works as plain SQLite. Same version as sqlx uses.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libsqlite3-sys = { version = "0.37.0", optional = true, features = ["bundled-sqlcipher"] }
+
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+libsqlite3-sys = { version = "0.37.0", optional = true, features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[features]
+default = ["encryption"]
+# The desktop app turns this off: it keeps one PAC on the treasurer's computer.
+encryption = ["dep:libsqlite3-sys"]
+
 [profile.release]
 strip = true
 lto = "thin"

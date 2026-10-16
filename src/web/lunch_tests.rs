@@ -78,6 +78,12 @@ impl Site {
         (res.status(), location)
     }
 
+    /// Closes the databases (see `Hosted::close`) and deletes the folder.
+    async fn finish(self) {
+        self.hosted.close().await;
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+
     /// Signs in and returns the session cookie.
     async fn sign_in(&self, email: &str, password: &str) -> (String, String) {
         let res = self.send("POST", "/login", None, &format!("username={email}&password={password}")).await;
@@ -107,7 +113,7 @@ async fn site_with(stripe_base: &str, helcim_base: &str) -> Site {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     let mailer = crate::hosted::mail::Mailer::Outbox(dir.join("outbox"));
-    let hosted = Arc::new(Hosted::open(&dir, BASE.into(), mailer, 1 << 30).await.unwrap());
+    let hosted = Arc::new(Hosted::open(&dir, BASE.into(), mailer, 1 << 30, crate::crypt::test_key()).await.unwrap());
     let lunch = Arc::new(Lunch {
         stripe: Some(Stripe::for_test(stripe_base, WEBHOOK_SECRET)),
         fees: FeeConfig::default(),
@@ -260,7 +266,7 @@ async fn parents_order_and_pay_without_seeing_the_books() {
     s.hosted.add_family(other.id, pac.id).await.unwrap();
     let (olga, _) = s.sign_in("olga@example.org", "another-password").await;
     assert_eq!(s.get(&format!("/family/orders/{}", order.id), &olga).await.0, StatusCode::NOT_FOUND);
-    let _ = std::fs::remove_dir_all(&s.dir);
+    s.finish().await;
 }
 
 #[tokio::test]
@@ -294,7 +300,7 @@ async fn without_the_flag_there_is_no_hot_lunch() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
     let (_, _, settings) = s.get("/settings", &tess).await;
     assert!(!settings.contains("Hot lunch"));
-    let _ = std::fs::remove_dir_all(&s.dir);
+    s.finish().await;
 }
 
 const HELCIM_TOKEN: &str = "helcim-test-token";
@@ -504,7 +510,7 @@ async fn parents_pay_by_card_through_the_pacs_own_helcim() {
     // Stopping Helcim forgets the token.
     s.post("/lunch/setup/helcim/remove", &tess, "").await;
     assert!(s.hosted.pac_helcim(pac.id).await.unwrap().is_none());
-    let _ = std::fs::remove_dir_all(&s.dir);
+    s.finish().await;
 }
 
 /// A new Express account is paid out weekly, and every Stripe call names the API version.
@@ -548,11 +554,13 @@ async fn express_accounts_get_weekly_payouts() {
     assert_eq!(to, "https://connect.stripe.test/setup");
     assert_eq!(s.hosted.pac_stripe(pac.id).await.unwrap().unwrap().account_id, "acct_new");
 
-    let seen = seen.lock().unwrap();
-    let (_, version, form) = seen.iter().find(|(path, _, _)| path == "accounts").unwrap();
-    assert_eq!(version, "2025-06-30.basil");
-    assert_eq!(form["settings[payouts][schedule][interval]"], "weekly");
-    assert_eq!(form["settings[payouts][schedule][weekly_payout_days][]"], "monday");
-    assert!(seen.iter().all(|(_, version, _)| version == "2025-06-30.basil"));
-    let _ = std::fs::remove_dir_all(&s.dir);
+    {
+        let seen = seen.lock().unwrap();
+        let (_, version, form) = seen.iter().find(|(path, _, _)| path == "accounts").unwrap();
+        assert_eq!(version, "2025-06-30.basil");
+        assert_eq!(form["settings[payouts][schedule][interval]"], "weekly");
+        assert_eq!(form["settings[payouts][schedule][weekly_payout_days][]"], "monday");
+        assert!(seen.iter().all(|(_, version, _)| version == "2025-06-30.basil"));
+    }
+    s.finish().await;
 }

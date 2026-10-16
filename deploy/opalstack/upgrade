@@ -67,7 +67,8 @@ echo "Installing $NEW_VERSION in: ${apps[*]##*/}"
 if [ -x "$BIN" ]; then
   for app in "${apps[@]}"; do
     if [ "$(setting "$app" PAC_HOSTED)" = 1 ] && [ -d "$(setting "$app" PAC_DATA_DIR)" ]; then
-      "$BIN" --data-dir "$(setting "$app" PAC_DATA_DIR)" backup --to "$HOME/pac-keeper-backups/${app##*/}"
+      PAC_DATA_KEY="$(setting "$app" PAC_DATA_KEY)" \
+        "$BIN" --data-dir "$(setting "$app" PAC_DATA_DIR)" backup --to "$HOME/pac-keeper-backups/${app##*/}"
     fi
   done
   cp "$BIN" "$BIN.previous"

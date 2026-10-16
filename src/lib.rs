@@ -5,6 +5,7 @@
 //! `desktop` crate wraps the same server in an app window.
 
 pub mod backup;
+pub mod crypt;
 pub mod db;
 pub mod demo;
 pub mod fiscal;

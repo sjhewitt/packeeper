@@ -103,7 +103,7 @@ async fn start_batch(state: &Ctx, account_id: i64, filename: &str, bytes: &[u8])
     let stored_name = format!("{stamp}-{safe}");
     let dir = state.data_dir.join("imports");
     tokio::fs::create_dir_all(&dir).await?;
-    tokio::fs::write(dir.join(&stored_name), bytes).await?;
+    state.files.write(&dir.join(&stored_name), bytes).await?;
     let id = sqlx::query(
         "INSERT INTO import_batches (account_id, filename, stored_name, format, created_at) VALUES (?, ?, ?, ?, ?)",
     )
@@ -175,7 +175,7 @@ async fn parse_batch(
     account: &Account,
     form: Option<&MappingForm>,
 ) -> AppResult<Parsed> {
-    let bytes = tokio::fs::read(state.data_dir.join("imports").join(&batch.stored_name)).await?;
+    let bytes = state.files.read(&state.data_dir.join("imports").join(&batch.stored_name)).await?;
     if batch.format == "ofx" {
         let st = ofx::parse(&bytes)?;
         return Ok(Parsed {

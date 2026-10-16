@@ -18,6 +18,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{FromRow, SqlitePool};
 use tokio::sync::Mutex;
 
+use crate::crypt::{self, DataKey, Files};
 use crate::db::{self, Settings};
 
 #[derive(Debug, Clone, FromRow)]
@@ -111,24 +112,52 @@ pub struct Hosted {
     pub quota_bytes: i64,
     /// Where the operator's visit counts come from; see `stats`.
     pub stats: stats::Sources,
+    /// Encrypts the records, when the server has PAC_DATA_KEY. See `crypt`.
+    data_key: Option<DataKey>,
     pools: Mutex<HashMap<i64, SqlitePool>>,
     limiter: Mutex<HashMap<String, (Instant, u32)>>,
 }
 
 impl Hosted {
-    pub async fn open(root: &Path, base_url: String, mailer: mail::Mailer, quota_bytes: i64) -> anyhow::Result<Hosted> {
+    /// Opens the server's folder. With `data_key`, every database is
+    /// encrypted; run `crypt::encrypt_existing` first on records that are plain.
+    pub async fn open(
+        root: &Path,
+        base_url: String,
+        mailer: mail::Mailer,
+        quota_bytes: i64,
+        data_key: Option<DataKey>,
+    ) -> anyhow::Result<Hosted> {
         std::fs::create_dir_all(root.join("pacs"))?;
         let path = root.join("control.db");
-        let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
+        let mut options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
             .create_if_missing(true)
             .foreign_keys(true)
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(Duration::from_secs(10));
-        let control = SqlitePoolOptions::new()
-            .max_connections(4)
-            .connect_with(options)
-            .await
-            .with_context(|| format!("open {}", path.display()))?;
+        match &data_key {
+            Some(key) => {
+                anyhow::ensure!(
+                    crypt::supported().await?,
+                    "this PAC Keeper was built without encryption, so it cannot use PAC_DATA_KEY"
+                );
+                anyhow::ensure!(
+                    !crypt::is_plain_database(&path)?,
+                    "the records in {} are not encrypted yet. Start the server once with PAC_DATA_KEY to encrypt them.",
+                    root.display()
+                );
+                options = key.control().apply(options);
+            }
+            None => anyhow::ensure!(
+                !crypt::is_encrypted_database(&path)?,
+                "the records in {} are encrypted. Set PAC_DATA_KEY to the key that encrypted them.",
+                root.display()
+            ),
+        }
+        let control = SqlitePoolOptions::new().max_connections(4).connect_with(options).await.with_context(|| {
+            let hint = if data_key.is_some() { " with PAC_DATA_KEY. Is it the key that encrypted it?" } else { "" };
+            format!("open {}{hint}", path.display())
+        })?;
         sqlx::migrate!("./migrations_control").run(&control).await.context("migrate the control database")?;
         Ok(Hosted {
             control,
@@ -137,6 +166,7 @@ impl Hosted {
             mailer,
             quota_bytes,
             stats: stats::Sources::default(),
+            data_key,
             pools: Mutex::new(HashMap::new()),
             limiter: Mutex::new(HashMap::new()),
         })
@@ -150,6 +180,27 @@ impl Hosted {
         self.root.join("pacs").join(&pac.folder)
     }
 
+    /// How the PAC's receipts and bank files are stored: sealed with the
+    /// PAC's own key when the server has PAC_DATA_KEY.
+    pub fn files(&self, pac: &Pac) -> Files {
+        match &self.data_key {
+            Some(key) => Files::sealed(key.folder(&pac.folder)),
+            None => Files::plain(),
+        }
+    }
+
+    /// Closes every database. Call this before the program ends: SQLCipher
+    /// frees its memory when the program exits, and an encrypted connection
+    /// that closes at the same time crashes it. The closed pools stay, so a
+    /// late request gets an error and opens nothing new.
+    pub async fn close(&self) {
+        let pools: Vec<SqlitePool> = self.pools.lock().await.values().cloned().collect();
+        for pool in pools {
+            pool.close().await;
+        }
+        self.control.close().await;
+    }
+
     /// The PAC's own database. Opened on first use and kept open.
     pub async fn pac_pool(&self, pac: &Pac) -> anyhow::Result<SqlitePool> {
         let mut pools = self.pools.lock().await;
@@ -158,7 +209,8 @@ impl Hosted {
         }
         let dir = self.pac_dir(pac);
         std::fs::create_dir_all(&dir)?;
-        let pool = db::open(&dir).await?;
+        let key = self.data_key.as_ref().map(|k| k.folder(&pac.folder));
+        let pool = db::open_with(&dir, key.as_ref().map(|k| &k.db)).await?;
         db::seed(&pool).await?;
         crate::fiscal::current(&pool).await?;
         pools.insert(pac.id, pool.clone());
@@ -555,31 +607,56 @@ pub fn looks_like_email(s: &str) -> bool {
 
 /// A consistent copy of every database, receipt, and bank file under `root`,
 /// into `to/<timestamp>/`. Works on a hosted root or a single-PAC folder.
-pub async fn backup(root: &Path, to: &Path) -> anyhow::Result<PathBuf> {
+/// With `data_key`, the hosted server's encrypted records stay encrypted in
+/// the copy, with the same keys.
+pub async fn backup(root: &Path, to: &Path, data_key: Option<&DataKey>) -> anyhow::Result<PathBuf> {
+    if data_key.is_some() && root.join("pac.db").exists() {
+        anyhow::bail!("PAC_DATA_KEY is for a hosted server. {} holds one PAC, which is not encrypted.", root.display());
+    }
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let dest = to.join(&stamp);
-    std::fs::create_dir_all(&dest)?;
+    let copied = copy_all(root, &dest, data_key).await;
+    if copied.is_err() {
+        // A part copy must not count as a backup.
+        let _ = std::fs::remove_dir_all(&dest);
+    }
+    copied.map(|()| dest)
+}
+
+async fn copy_all(root: &Path, dest: &Path, data_key: Option<&DataKey>) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dest)?;
     let mut databases = Vec::new();
     for name in ["control.db", "pac.db"] {
         if root.join(name).exists() {
-            databases.push(PathBuf::from(name));
+            databases.push((PathBuf::from(name), data_key.map(DataKey::control)));
         }
     }
     if let Ok(entries) = std::fs::read_dir(root.join("pacs")) {
         for e in entries.flatten() {
             if e.path().join("pac.db").exists() {
-                databases.push(Path::new("pacs").join(e.file_name()).join("pac.db"));
+                let key = data_key.map(|k| k.folder(&e.file_name().to_string_lossy()).db);
+                databases.push((Path::new("pacs").join(e.file_name()).join("pac.db"), key));
             }
         }
     }
-    for rel in &databases {
+    for (rel, key) in &databases {
+        if key.is_none() && crypt::is_encrypted_database(&root.join(rel))? {
+            anyhow::bail!("{} is encrypted. Set PAC_DATA_KEY to the key that encrypted it.", rel.display());
+        }
         let target = dest.join(rel);
         std::fs::create_dir_all(target.parent().expect("parent"))?;
-        let options =
+        let mut options =
             SqliteConnectOptions::from_str(&format!("sqlite://{}", root.join(rel).display()))?.read_only(true);
+        if let Some(key) = key {
+            options = key.apply(options);
+        }
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
         // VACUUM INTO makes a consistent copy while the server keeps running.
-        sqlx::query("VACUUM INTO ?").bind(target.display().to_string()).execute(&pool).await?;
+        // SQLCipher encrypts the copy with the database's own key.
+        sqlx::query("VACUUM INTO ?").bind(target.display().to_string()).execute(&pool).await.with_context(|| {
+            let hint = if key.is_some() { " with PAC_DATA_KEY. Is it the key that encrypted it?" } else { "" };
+            format!("copy {}{hint}", rel.display())
+        })?;
         pool.close().await;
         // Receipts and bank files sit beside each database.
         let folder = rel.parent().unwrap_or(Path::new(""));
@@ -590,7 +667,7 @@ pub async fn backup(root: &Path, to: &Path) -> anyhow::Result<PathBuf> {
             }
         }
     }
-    Ok(dest)
+    Ok(())
 }
 
 fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
@@ -619,7 +696,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let mailer = mail::Mailer::Outbox(dir.join("outbox"));
-        (Hosted::open(&dir, "http://localhost".into(), mailer, 1 << 30).await.unwrap(), dir)
+        (Hosted::open(&dir, "http://localhost".into(), mailer, 1 << 30, crypt::test_key()).await.unwrap(), dir)
     }
 
     #[tokio::test]
@@ -649,6 +726,7 @@ mod tests {
         // Membership is per PAC.
         assert!(h.membership(alice.id, a.id).await.unwrap().is_some());
         assert!(h.membership(alice.id, b.id).await.unwrap().is_none());
+        h.close().await;
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -662,6 +740,7 @@ mod tests {
         assert!(h.take_token(&t, "verify").await.unwrap().is_none(), "used twice");
         let old = h.create_token("verify", p.id, None, None, chrono::Duration::hours(-1)).await.unwrap();
         assert!(h.take_token(&old, "verify").await.unwrap().is_none(), "expired");
+        h.close().await;
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -673,6 +752,65 @@ mod tests {
         }
         assert!(!h.allow("k", 3, Duration::from_secs(60)).await);
         assert!(h.allow("other", 3, Duration::from_secs(60)).await);
+        h.close().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A server that runs without a key, then starts with one, encrypts the
+    /// records it has, and they still open.
+    #[cfg(feature = "encryption")]
+    #[tokio::test]
+    async fn plain_records_get_encrypted_when_a_key_is_set() {
+        let (h, dir) = {
+            let dir = std::env::temp_dir().join(format!("pac-hosted-encrypt-test-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let mailer = mail::Mailer::Outbox(dir.join("outbox"));
+            (Hosted::open(&dir, "http://localhost".into(), mailer, 1 << 30, None).await.unwrap(), dir)
+        };
+        let ann = h.ensure_person("ann@example.org", "Ann").await.unwrap();
+        let pac = h.activate(h.request_pac(ann.id, "Alpha PAC", "Alpha School", "", "").await.unwrap()).await.unwrap();
+        let pac_dir = h.pac_dir(&pac);
+        for (rel, bytes) in [
+            ("receipts/2026/1-ab12cd34-receipt.pdf", b"%PDF receipt".as_slice()),
+            ("imports/20260915-statement.csv", b"date,amount"),
+            ("backups/before-restore.zip", b"PK old records"),
+            (".upload-20261016.zip", b"PK upload that a crash left"),
+            (".restore-ab12/pac.db", b"SQLite format 3\0 left by a crash"),
+        ] {
+            std::fs::create_dir_all(pac_dir.join(rel).parent().unwrap()).unwrap();
+            std::fs::write(pac_dir.join(rel), bytes).unwrap();
+        }
+        let key = DataKey::generate();
+        let mailer = || mail::Mailer::Outbox(dir.join("outbox"));
+        let err = crypt::encrypt_existing(&dir, &key).await.unwrap_err();
+        assert!(err.to_string().contains("another program"), "the running server's databases stay as they are: {err}");
+        assert!(crypt::is_plain_database(&dir.join("control.db")).unwrap());
+        h.close().await;
+        drop(h);
+
+        let err = Hosted::open(&dir, String::new(), mailer(), 1 << 30, Some(DataKey::parse(&key.to_hex()).unwrap()))
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("not encrypted yet"), "{err}");
+        crypt::encrypt_existing(&dir, &key).await.unwrap();
+        crypt::encrypt_existing(&dir, &key).await.unwrap();
+        assert!(crypt::is_encrypted_database(&dir.join("control.db")).unwrap());
+        assert!(crypt::is_encrypted_database(&pac_dir.join("pac.db")).unwrap());
+        assert!(!pac_dir.join(".upload-20261016.zip").exists() && !pac_dir.join(".restore-ab12").exists());
+
+        let h = Hosted::open(&dir, String::new(), mailer(), 1 << 30, Some(key)).await.unwrap();
+        let pac = h.pac(pac.id).await.unwrap().unwrap();
+        assert_eq!(Settings::load(&h.pac_pool(&pac).await.unwrap()).await.unwrap().pac_name, "Alpha PAC");
+        let files = h.files(&pac);
+        assert_eq!(files.read(&pac_dir.join("receipts/2026/1-ab12cd34-receipt.pdf")).await.unwrap(), b"%PDF receipt");
+        assert_eq!(files.read(&pac_dir.join("imports/20260915-statement.csv")).await.unwrap(), b"date,amount");
+        assert_eq!(files.read(&pac_dir.join("backups/before-restore.zip")).await.unwrap(), b"PK old records");
+        assert!(
+            Files::plain().open(std::fs::read(pac_dir.join("imports/20260915-statement.csv")).unwrap()).unwrap()
+                != b"date,amount"
+        );
+        h.close().await;
         let _ = std::fs::remove_dir_all(dir);
     }
 

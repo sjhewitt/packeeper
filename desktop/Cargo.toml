@@ -8,7 +8,8 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.104"
-pac-keeper = { path = ".." }
+# No SQLCipher: the desktop app keeps one PAC, and PAC Keeper does not encrypt it.
+pac-keeper = { path = "..", default-features = false }
 serde_json = "1.0.154"
 tauri = { version = "2.12.3", features = [] }
 tauri-plugin-opener = "2.7.1"

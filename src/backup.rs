@@ -18,13 +18,20 @@
 //! running server keeps its connections. Sign-in users (`users`) stay as they
 //! are: they belong to this install, not to the PAC. A copy of the records
 //! from before is kept in `backups/before-restore.zip`.
+//!
+//! On a hosted server with PAC_DATA_KEY, the zip is still plain, so that a
+//! PAC can take its records to the desktop app. A restore seals the files and
+//! puts the records into the encrypted database.
 
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{AssertSqlSafe, Connection, SqlitePool};
+
+use crate::crypt::Files;
 
 /// The tables of a PAC's records, children first, for the foreign keys. A
 /// new table goes here; a test checks that none is missing.
@@ -84,20 +91,42 @@ fn refuse(message: impl Into<String>) -> anyhow::Error {
 const NOT_OURS: &str = "This is not a PAC Keeper backup. Choose the .zip from \"Download all records\" in Settings.";
 
 /// A zip of the records now: a consistent copy of the database, and the
-/// receipts and imported bank files.
-pub async fn snapshot(pool: &SqlitePool, data_dir: &Path) -> anyhow::Result<Vec<u8>> {
+/// receipts and imported bank files, all plain.
+pub async fn snapshot(pool: &SqlitePool, data_dir: &Path, files: &Files) -> anyhow::Result<Vec<u8>> {
     let dir = data_dir.join("backups");
     tokio::fs::create_dir_all(&dir).await?;
     let copy = dir.join(format!("pac-{}.db", unique()));
-    // VACUUM INTO writes a consistent copy while the app keeps running.
-    sqlx::query("VACUUM INTO ?").bind(copy.display().to_string()).execute(pool).await?;
-    let (data_dir, file) = (data_dir.to_path_buf(), copy.clone());
-    let bytes = tokio::task::spawn_blocking(move || build_zip(&data_dir, &file)).await?;
+    let copied = plain_copy(pool, &copy, files.is_sealed()).await;
+    let bytes = match copied {
+        Ok(()) => {
+            let (data_dir, file, files) = (data_dir.to_path_buf(), copy.clone(), files.clone());
+            tokio::task::spawn_blocking(move || build_zip(&data_dir, &file, &files)).await?
+        }
+        Err(e) => Err(e),
+    };
     let _ = tokio::fs::remove_file(&copy).await;
     bytes
 }
 
-fn build_zip(data_dir: &Path, db: &Path) -> anyhow::Result<Vec<u8>> {
+/// Writes a consistent, plain copy of the database to `to` while the app
+/// keeps running.
+async fn plain_copy(pool: &SqlitePool, to: &Path, encrypted: bool) -> anyhow::Result<()> {
+    if !encrypted {
+        sqlx::query("VACUUM INTO ?").bind(to.display().to_string()).execute(pool).await?;
+        return Ok(());
+    }
+    // SQLCipher's VACUUM INTO would encrypt the copy, so export it instead.
+    let mut conn = pool.acquire().await?;
+    sqlx::query("ATTACH DATABASE ? AS plain KEY ''").bind(to.display().to_string()).execute(&mut *conn).await?;
+    let result = sqlx::query("SELECT sqlcipher_export('plain')").execute(&mut *conn).await;
+    if sqlx::query("DETACH DATABASE plain").execute(&mut *conn).await.is_err() {
+        let _ = conn.detach().close().await;
+    }
+    result?;
+    Ok(())
+}
+
+fn build_zip(data_dir: &Path, db: &Path, files: &Files) -> anyhow::Result<Vec<u8>> {
     let mut buf = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut buf);
@@ -107,8 +136,8 @@ fn build_zip(data_dir: &Path, db: &Path) -> anyhow::Result<Vec<u8>> {
         for sub in ["receipts", "imports"] {
             for file in walk(&data_dir.join(sub)) {
                 let rel = file.strip_prefix(data_dir)?.to_string_lossy().replace('\\', "/");
-                zip.start_file(rel, opts)?;
-                zip.write_all(&std::fs::read(&file)?)?;
+                zip.start_file(rel.as_str(), opts)?;
+                zip.write_all(&files.open(std::fs::read(&file)?).with_context(|| format!("read {rel}"))?)?;
             }
         }
         zip.finish()?;
@@ -116,7 +145,7 @@ fn build_zip(data_dir: &Path, db: &Path) -> anyhow::Result<Vec<u8>> {
     Ok(buf.into_inner())
 }
 
-fn walk(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else { return out };
     for e in entries.flatten() {
@@ -158,9 +187,15 @@ pub fn upload_limit(options: &Options) -> u64 {
 /// Replaces the records of the database `pool`, whose files live in
 /// `data_dir`, with the backup at `zip`. An error that is a `Refused` says
 /// what is wrong with the backup.
-pub async fn restore(pool: &SqlitePool, data_dir: &Path, zip: &Path, options: &Options) -> anyhow::Result<Restored> {
+pub async fn restore(
+    pool: &SqlitePool,
+    data_dir: &Path,
+    files: &Files,
+    zip: &Path,
+    options: &Options,
+) -> anyhow::Result<Restored> {
     let staging = data_dir.join(format!(".restore-{}", unique()));
-    let result = restore_from(pool, data_dir, zip, &staging, options).await;
+    let result = restore_from(pool, data_dir, files, zip, &staging, options).await;
     let _ = tokio::fs::remove_dir_all(&staging).await;
     result
 }
@@ -168,6 +203,7 @@ pub async fn restore(pool: &SqlitePool, data_dir: &Path, zip: &Path, options: &O
 async fn restore_from(
     pool: &SqlitePool,
     data_dir: &Path,
+    files: &Files,
     zip: &Path,
     staging: &Path,
     options: &Options,
@@ -177,12 +213,20 @@ async fn restore_from(
     let receipts = tokio::task::spawn_blocking(move || unpack(&zip, &unpack_to, limit)).await??;
     let db = staging.join("pac.db");
     check_database(pool, &db).await?;
+    let (sealer, unpacked) = (files.clone(), staging.to_path_buf());
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        for sub in ["receipts", "imports"] {
+            sealer.seal_folder(&unpacked.join(sub))?;
+        }
+        Ok(())
+    })
+    .await??;
 
     // Keep the records from before, in case the wrong backup went in.
-    let before = snapshot(pool, data_dir).await?;
-    tokio::fs::write(data_dir.join("backups").join("before-restore.zip"), before).await?;
+    let before = snapshot(pool, data_dir, files).await?;
+    files.write(&data_dir.join("backups").join("before-restore.zip"), &before).await?;
 
-    let left_out_lunch = copy_records(pool, &db, options.families.as_ref()).await?;
+    let left_out_lunch = copy_records(pool, &db, files.is_sealed(), options.families.as_ref()).await?;
     for sub in ["receipts", "imports"] {
         let (live, new, old) = (data_dir.join(sub), staging.join(sub), staging.join(format!("old-{sub}")));
         if live.exists() {
@@ -321,9 +365,17 @@ async fn schema(pool: &SqlitePool) -> anyhow::Result<Vec<(String, String, String
 }
 
 /// Copies the backup's records into the database, in one transaction.
-async fn copy_records(pool: &SqlitePool, db: &Path, families: Option<&HashSet<i64>>) -> anyhow::Result<bool> {
+async fn copy_records(
+    pool: &SqlitePool,
+    db: &Path,
+    encrypted: bool,
+    families: Option<&HashSet<i64>>,
+) -> anyhow::Result<bool> {
     let mut conn = pool.acquire().await?;
-    sqlx::query("ATTACH DATABASE ? AS backup").bind(db.display().to_string()).execute(&mut *conn).await?;
+    // The backup is plain. On an encrypted connection, SQLCipher takes an
+    // attached database to have the same key unless KEY says otherwise.
+    let attach = if encrypted { "ATTACH DATABASE ? AS backup KEY ''" } else { "ATTACH DATABASE ? AS backup" };
+    sqlx::query(attach).bind(db.display().to_string()).execute(&mut *conn).await?;
     let result = copy_attached(&mut conn, families).await;
     if sqlx::query("DETACH DATABASE backup").execute(&mut *conn).await.is_err() {
         // Do not give a connection that still holds the backup back to the pool.
@@ -411,7 +463,7 @@ mod tests {
     async fn try_restore(pool: &SqlitePool, dir: &Path, zip: &[u8], options: &Options) -> Result<Restored, String> {
         let path = dir.join(format!("upload-{}.zip", unique()));
         std::fs::write(&path, zip).unwrap();
-        restore(pool, dir, &path, options).await.map_err(|e| match e.downcast_ref::<Refused>() {
+        restore(pool, dir, &Files::plain(), &path, options).await.map_err(|e| match e.downcast_ref::<Refused>() {
             Some(r) => r.0.clone(),
             None => panic!("not a refusal: {e:#}"),
         })
@@ -441,7 +493,7 @@ mod tests {
             .execute(&from)
             .await
             .unwrap();
-        let backup = snapshot(&from, &from_dir).await.unwrap();
+        let backup = snapshot(&from, &from_dir, &Files::plain()).await.unwrap();
 
         // The other folder has its own sign-in user, which stays.
         let (to, to_dir) = folder("to").await;

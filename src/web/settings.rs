@@ -108,7 +108,7 @@ impl SettingsPage {
 pub async fn backup(state: Ctx, user: UserExt) -> AppResult<Response> {
     // The backup holds everything, including password hashes.
     require_edit(&user)?;
-    let bytes = crate::backup::snapshot(&state.pool, &state.data_dir).await?;
+    let bytes = crate::backup::snapshot(&state.pool, &state.data_dir, &state.files).await?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     Ok(zip_response(bytes, &format!("pac-keeper-backup-{stamp}.zip")))
 }
@@ -145,7 +145,7 @@ pub async fn restore(state: Ctx, user: UserExt, mut multipart: Multipart) -> App
     let upload = state.data_dir.join(format!(".upload-{}.zip", chrono::Local::now().format("%Y%m%d%H%M%S%f")));
     let saved = save_upload(&mut multipart, &upload, crate::backup::upload_limit(&options)).await;
     let result = match saved {
-        Ok(true) => crate::backup::restore(&state.pool, &state.data_dir, &upload, &options).await,
+        Ok(true) => crate::backup::restore(&state.pool, &state.data_dir, &state.files, &upload, &options).await,
         Ok(false) => Err(anyhow::Error::new(crate::backup::Refused("Choose the backup file (.zip).".into()))),
         Err(e) => Err(e),
     };
@@ -196,7 +196,7 @@ async fn save_upload(multipart: &mut Multipart, path: &Path, limit: u64) -> anyh
 /// The records from before the last restore.
 pub async fn before_restore(state: Ctx, user: UserExt) -> AppResult<Response> {
     require_edit(&user)?;
-    let bytes = tokio::fs::read(before_restore_path(&state)).await.map_err(|_| super::AppError::NotFound)?;
+    let bytes = state.files.read(&before_restore_path(&state)).await.map_err(|_| super::AppError::NotFound)?;
     Ok(zip_response(bytes, "pac-keeper-before-restore.zip"))
 }
 
@@ -210,7 +210,7 @@ mod tests {
     #[tokio::test]
     async fn a_backup_restores_from_the_settings_page() {
         let (app, pool, dir) = example("restore-web").await;
-        let backup = crate::backup::snapshot(&pool, &dir).await.unwrap();
+        let backup = crate::backup::snapshot(&pool, &dir, &crate::crypt::Files::plain()).await.unwrap();
         sqlx::query("UPDATE settings SET value = 'Changed PAC' WHERE key = 'pac_name'").execute(&pool).await.unwrap();
 
         let (_, _, page) = send(&app, "GET", "/settings", "").await;

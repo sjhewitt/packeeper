@@ -144,7 +144,13 @@ pub async fn guard(State(app): State<AppState>, jar: PrivateCookieJar, mut req: 
         return super::hosted::guard(app, hosted, jar, req, next).await;
     }
     let single = app.single.clone().expect("a single-PAC server has its PAC");
-    req.extensions_mut().insert(Ctx::new(&app, single.pool.clone(), single.data_dir.clone(), None));
+    req.extensions_mut().insert(Ctx::new(
+        &app,
+        single.pool.clone(),
+        single.data_dir.clone(),
+        crate::crypt::Files::plain(),
+        None,
+    ));
     if !app.auth {
         req.extensions_mut().insert(CurrentUser(None));
         return next.run(req).await;

@@ -666,7 +666,7 @@ pub async fn upload(
         if let Some(dir) = path.parent() {
             tokio::fs::create_dir_all(dir).await?;
         }
-        tokio::fs::write(&path, &bytes).await?;
+        state.files.write(&path, &bytes).await?;
         sqlx::query(
             "INSERT INTO attachments (transaction_id, filename, stored_name, content_type, size_bytes, sha256, uploaded_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -697,7 +697,10 @@ pub async fn attachment(state: Ctx, UrlPath(id): UrlPath<i64>) -> AppResult<Resp
         .await?
         .ok_or(AppError::NotFound)?;
     let path = state.data_dir.join("receipts").join(&a.stored_name);
-    let bytes = tokio::fs::read(&path).await.map_err(|_| AppError::NotFound)?;
+    let bytes = state.files.read(&path).await.map_err(|e| {
+        tracing::warn!("could not read the file of attachment {}: {e:#}", a.id);
+        AppError::NotFound
+    })?;
     let inline = (a.content_type.starts_with("image/") && a.content_type != "image/svg+xml")
         || a.content_type == "application/pdf";
     let content_type = if inline { a.content_type.clone() } else { "application/octet-stream".into() };

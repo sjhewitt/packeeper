@@ -193,6 +193,23 @@ app.packeeper.ca {
 
 With Docker: `docker run -d -p 127.0.0.1:8080:8080 -v pac-hosted:/data -e PAC_HOSTED=1 -e PAC_BASE_URL=https://app.packeeper.ca -e PAC_SMTP_URL=... -e PAC_MAIL_FROM=... pac-keeper`
 
+### Encrypted records
+
+With `PAC_DATA_KEY`, the hosted server encrypts the records on disk. SQLCipher encrypts `control.db` and each PAC's `pac.db`. AES-256-GCM seals the receipts, the bank files, and the copy from before a restore. Each PAC has its own keys, which come from the data key.
+
+1. Make a key: `pac-keeper new-data-key`. It writes 64 hex digits.
+2. Keep a copy in your password manager, away from the server. **If you lose the key, nobody can read the records or the backups. That includes you.**
+3. Put the key in the server's settings, outside the data folder: `PAC_DATA_KEY="..."`. Only the environment can give the key. There is no command-line option, so the key does not show in the list of running programs.
+4. Stop the server, then start it (on Opalstack: `~/apps/pk_app/stop && ~/apps/pk_app/start`). At start, it encrypts all records that are still plain, so you can turn this on for a server that has PACs already. It does not encrypt a database that another program has open. Do this as its own step, after the upgrade to a version with encryption. If the encryption stops with an error, fix the cause and start again: it continues where it stopped.
+
+What this protects:
+
+- A copy of the data folder, of a backup, or of the disk is useless without the key.
+- It does not keep out a person who can use the server's account. The running server has the key, and that person can read it from the settings.
+- A PAC's own download (**Settings → Download all records**) is a plain zip, so the PAC can open it in the desktop app. A restore also takes a plain zip. While it makes or restores a zip, the server keeps a plain copy for a short time, then deletes it.
+
+The `backup`, `operator`, and `stats` commands need `PAC_DATA_KEY` too. Backups stay encrypted with the same key. To restore one, copy it back and start the server with the same key. Copies from before you set the key stay plain: your own backups, and the host's backups of the disk. Delete your old backups when the encrypted backups work. A single-PAC folder and the desktop app are not encrypted, and they refuse `PAC_DATA_KEY`.
+
 ### Visit counts
 
 The operator page links to **Visits** (`/operator/stats`), which only operators can open. It shows visits to the website, the demo, and the app, sign-ups and sign-ins, where visitors came from, the demo pages they opened, downloads of the desktop apps, and the number of accounts and PACs.
@@ -339,11 +356,13 @@ demo.packeeper.ca {
    Then edit each `env` file:
    - `~/apps/pk_demo/env`: the app's port, `PAC_DATA_DIR="$HOME/pac-keeper-data/demo"`, and `PAC_DEMO=1`.
    - `~/apps/pk_app/env`: the app's port, `PAC_DATA_DIR="$HOME/pac-keeper-data/hosted"`, `PAC_HOSTED=1`, `PAC_BASE_URL`, and the email settings. First make a mailbox for `hello@packeeper.ca` in the dashboard. The SMTP user is the mailbox name, not the email address.
+   - Also in `~/apps/pk_app/env`: `PAC_DATA_KEY`, from `~/bin/pac-keeper new-data-key`. Keep a copy in your password manager. See [Encrypted records](#encrypted-records).
+   - Run `chmod 600 ~/apps/*/env`. The files hold passwords and the data key.
 
-6. **The operator.** Make yourself the hosted server's operator:
+6. **The operator.** Make yourself the hosted server's operator. The command reads the app's settings, for the data folder and the data key:
 
    ```sh
-   ~/bin/pac-keeper --data-dir ~/pac-keeper-data/hosted operator you@example.org --name "Your Name"
+   (set -a; . ~/apps/pk_app/env; ~/bin/pac-keeper operator you@example.org --name "Your Name")
    ```
 
 7. **Start, and keep running.** Run `~/apps/pk_demo/start` and `~/apps/pk_app/start`. Each prints its log file if the server stops at start. Then add these lines with `crontab -e`. Every 10 minutes, cron starts a server that is not running, for example after a server restart:
@@ -414,8 +433,9 @@ Set it up once:
    ~/bin/pac-keeper-backup
    ```
 
-5. **Your password manager.** The backups do not hold these three things. Keep them there:
+5. **Your password manager.** The backups do not hold these things. Keep them there:
    - `RESTIC_PASSWORD`. Without it, nobody can read the backups.
+   - `PAC_DATA_KEY`, from `~/apps/pk_app/env`, if the records are encrypted (see [Encrypted records](#encrypted-records)). Restic needs `RESTIC_PASSWORD`, and the records in the backups also need this key.
    - The server's `secret.key`, as text: `base64 ~/pac-keeper-data/hosted/secret.key`. The backup leaves it out on purpose, because it opens the PACs' sealed Helcim tokens. Without it, a restored server works, but every person must sign in again and every PAC must enter its Helcim token again.
    - The secrets in `~/apps/pk_app/env`, such as the SMTP password and the Stripe keys.
 
@@ -436,9 +456,9 @@ Set it up once:
 (set -a; . ~/pac-keeper-backup.env; ~/bin/restic restore latest --target ~/restore)
 ```
 
-The records are in `~/restore/home/USER/pac-keeper-backups/pk_app/DATE/`: `control.db`, and `pacs/` with each PAC's database, receipts, and bank files. To put back all the records, stop the app, move its data folder away, and copy the restored folder to its place. Then put back `secret.key` (`base64 -d > secret.key` and `chmod 600 secret.key`), and start the app. To put back one PAC only, stop the app and replace only that PAC's folder in `pacs/`.
+The records are in `~/restore/home/USER/pac-keeper-backups/pk_app/DATE/`: `control.db`, and `pacs/` with each PAC's database, receipts, and bank files. To put back all the records, stop the app, move its data folder away, and copy the restored folder to its place. Then put back `secret.key` (`base64 -d > secret.key` and `chmod 600 secret.key`), and start the app. For encrypted records, the app's `env` must hold the same `PAC_DATA_KEY` as when the backup was made. To put back one PAC only, stop the app and replace only that PAC's folder in `pacs/`.
 
-Test a restore every few months. Restore as above, then run `~/bin/pac-keeper --data-dir ~/restore/home/USER/pac-keeper-backups/pk_app/DATE stats`: it opens `control.db` and prints the counts. Then delete `~/restore`.
+Test a restore every few months. Restore as above, then run `(set -a; . ~/apps/pk_app/env; ~/bin/pac-keeper --data-dir ~/restore/home/USER/pac-keeper-backups/pk_app/DATE stats)`. It opens `control.db` with the app's data key and prints the counts. Then delete `~/restore`.
 
 ### Automatic deploys
 
@@ -475,6 +495,7 @@ pac-keeper --data-dir DIR serve --hosted --base-url URL [--quota-mb N]
 pac-keeper --data-dir DIR operator EMAIL [--name NAME]
 pac-keeper --data-dir DIR backup --to BACKUP_DIR
 pac-keeper --data-dir DIR stats [--now]
+pac-keeper new-data-key
 pac-keeper user add NAME [--role treasurer|viewer] [--name "Display name"]
 pac-keeper user list
 pac-keeper user remove NAME

@@ -154,9 +154,10 @@ pub async fn guard(
         return AppError::Forbidden.into_response();
     }
     let data_dir = hosted.pac_dir(&membership.pac);
+    let files = hosted.files(&membership.pac);
     let ctx = HostedCtx { hosted: hosted.clone(), pac: membership.pac, person, pac_count };
     req.extensions_mut().insert(CurrentUser(Some(user)));
-    req.extensions_mut().insert(Ctx::new(&app, pool, data_dir, Some(ctx)));
+    req.extensions_mut().insert(Ctx::new(&app, pool, data_dir, files, Some(ctx)));
     next.run(req).await
 }
 
@@ -1199,13 +1200,15 @@ mod tests {
             "https://app.example.org".into(),
             crate::hosted::mail::Mailer::Outbox(outbox),
             1 << 30,
+            crate::crypt::test_key(),
         )
         .await
         .unwrap();
+        let hosted = Arc::new(hosted);
         let control = hosted.control.clone();
         let app = crate::web::router(AppState {
             single: None,
-            hosted: Some(Arc::new(hosted)),
+            hosted: Some(hosted.clone()),
             renderer: Arc::new(crate::reports::pdf::Renderer::new()),
             pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
             auth: true,
@@ -1247,6 +1250,7 @@ mod tests {
         let (status, body) = post("/forgot", "email=ann%40example.org").await;
         assert_eq!(status, axum::http::StatusCode::OK);
         assert!(body.contains("If there is an account for that address"), "{body}");
+        hosted.close().await;
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1260,7 +1264,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pac-stats-web-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mailer = crate::hosted::mail::Mailer::Outbox(dir.join("outbox"));
-        let hosted = Hosted::open(&dir.join("root"), "https://app.example.org".into(), mailer, 1 << 30).await.unwrap();
+        let hosted = Hosted::open(
+            &dir.join("root"),
+            "https://app.example.org".into(),
+            mailer,
+            1 << 30,
+            crate::crypt::test_key(),
+        )
+        .await
+        .unwrap();
         for (email, operator) in [("op@example.org", true), ("ann@example.org", false)] {
             let person = hosted.ensure_person(email, "Someone").await.unwrap();
             hosted.set_password(person.id, "a-long-password").await.unwrap();
@@ -1272,9 +1284,10 @@ mod tests {
                 .await
                 .unwrap();
         }
+        let hosted = Arc::new(hosted);
         let app = crate::web::router(AppState {
             single: None,
-            hosted: Some(Arc::new(hosted)),
+            hosted: Some(hosted.clone()),
             renderer: Arc::new(crate::reports::pdf::Renderer::new()),
             pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
             auth: true,
@@ -1318,6 +1331,172 @@ mod tests {
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         let res = send("GET", "/operator/stats", "", String::new()).await.unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        hosted.close().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// With PAC_DATA_KEY, no file on the server shows a PAC's records or
+    /// receipts. The PAC still sees its receipts, and its backup zip is plain,
+    /// so it restores here or in the desktop app. The operator's backup stays
+    /// encrypted and opens with the same key.
+    #[cfg(feature = "encryption")]
+    #[tokio::test]
+    async fn a_pacs_records_are_encrypted_on_disk() {
+        use axum::body::Body;
+        use axum::http::{StatusCode, header};
+        use tower::ServiceExt;
+
+        use crate::crypt::{DataKey, is_encrypted_database};
+
+        /// Files under `dir` that hold "pizza" in any case, outside the outbox.
+        fn plain_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+            crate::backup::walk(dir)
+                .into_iter()
+                .filter(|p| !p.starts_with(dir.join("outbox")))
+                .filter(|p| std::fs::read(p).unwrap().to_ascii_lowercase().windows(5).any(|w| w == b"pizza"))
+                .collect()
+        }
+
+        let dir = std::env::temp_dir().join(format!("pac-encrypted-web-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("root");
+        let key = DataKey::generate();
+        let key_text = key.to_hex();
+        let mailer = crate::hosted::mail::Mailer::Outbox(root.join("outbox"));
+        let hosted =
+            Arc::new(Hosted::open(&root, "https://app.example.org".into(), mailer, 1 << 30, Some(key)).await.unwrap());
+        let person = hosted.ensure_person("tess@example.org", "Tess").await.unwrap();
+        hosted.set_password(person.id, "a-long-password").await.unwrap();
+        hosted.mark_verified(person.id).await.unwrap();
+        let pac_id = hosted.request_pac(person.id, "Alpha PAC", "Alpha School", "", "").await.unwrap();
+        let pac = hosted.activate(pac_id).await.unwrap();
+        let pool = hosted.pac_pool(&pac).await.unwrap();
+        for sql in [
+            "INSERT INTO accounts (id, name, kind, opening_date) VALUES (1, 'Chequing', 'general', '2026-07-01')",
+            "INSERT INTO transactions (id, account_id, date, description, amount_cents, source, created_at)
+             VALUES (1, 1, '2026-09-15', 'Pizza day', -12000, 'manual', '2026-09-15')",
+        ] {
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+        let app = crate::web::router(AppState {
+            single: None,
+            hosted: Some(hosted.clone()),
+            renderer: Arc::new(crate::reports::pdf::Renderer::new()),
+            pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
+            auth: true,
+            demo: None,
+            loopback_only: false,
+            desktop_secret: None,
+            lunch: None,
+            key: axum_extra::extract::cookie::Key::generate(),
+        });
+        let send = |method: &str, path: &str, cookie: &str, content_type: String, body: Vec<u8>| {
+            let req = axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::HOST, "app.example.org")
+                .header(header::CONTENT_TYPE, content_type)
+                .header(header::COOKIE, cookie)
+                .body(Body::from(body))
+                .unwrap();
+            app.clone().oneshot(req)
+        };
+        let form = "application/x-www-form-urlencoded".to_string();
+        let upload = |path: &'static str, cookie: String, field: &'static str, name: &'static str, bytes: Vec<u8>| {
+            let boundary = "pac-keeper-test-boundary";
+            let mut body = format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{name}\"\r\n\r\n"
+            )
+            .into_bytes();
+            body.extend_from_slice(&bytes);
+            body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+            send("POST", path, &cookie, format!("multipart/form-data; boundary={boundary}"), body)
+        };
+        let body = |res: axum::response::Response| async move {
+            axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap().to_vec()
+        };
+
+        let res =
+            send("POST", "/login", "", form.clone(), b"username=tess%40example.org&password=a-long-password".to_vec())
+                .await
+                .unwrap();
+        let cookie = res
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find(|v| v.starts_with("pk_session="))
+            .expect("a session cookie")
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+
+        // A receipt goes in sealed, and comes back as it was.
+        let receipt = b"%PDF-1.4 receipt for pizza day".to_vec();
+        let res = upload("/transactions/1/attachments", cookie.clone(), "file", "pizza.pdf", receipt.clone()).await;
+        assert_eq!(res.unwrap().status(), StatusCode::SEE_OTHER);
+        let attachment: i64 = sqlx::query_scalar("SELECT id FROM attachments").fetch_one(&pool).await.unwrap();
+        let res = send("GET", &format!("/attachments/{attachment}"), &cookie, form.clone(), vec![]).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(body(res).await, receipt);
+        let pac_dir = hosted.pac_dir(&pac);
+        assert!(is_encrypted_database(&root.join("control.db")).unwrap());
+        assert!(is_encrypted_database(&pac_dir.join("pac.db")).unwrap());
+        assert_eq!(plain_files(&root), Vec::<std::path::PathBuf>::new());
+
+        // The PAC's backup is plain.
+        let res = send("GET", "/settings/backup.zip", &cookie, form.clone(), vec![]).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let zip_bytes = body(res).await;
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes.clone())).unwrap();
+        let mut db = Vec::new();
+        std::io::Read::read_to_end(&mut zip.by_name("pac.db").unwrap(), &mut db).unwrap();
+        assert!(db.starts_with(b"SQLite format 3\0"), "a plain database");
+        let stored: String = sqlx::query_scalar("SELECT stored_name FROM attachments").fetch_one(&pool).await.unwrap();
+        let mut in_zip = Vec::new();
+        std::io::Read::read_to_end(&mut zip.by_name(&format!("receipts/{stored}")).unwrap(), &mut in_zip).unwrap();
+        assert_eq!(in_zip, receipt);
+        assert_eq!(plain_files(&root), Vec::<std::path::PathBuf>::new(), "no plain copy stays behind");
+
+        // It restores into the encrypted records, and its files are sealed again.
+        sqlx::query("UPDATE transactions SET description = 'Changed'").execute(&pool).await.unwrap();
+        let res = upload("/settings/restore", cookie.clone(), "backup", "pac.zip", zip_bytes).await.unwrap();
+        let location = res.headers().get(header::LOCATION).unwrap().to_str().unwrap().to_string();
+        assert!(location.contains("msg=Backup%20restored"), "{location}");
+        let description: String =
+            sqlx::query_scalar("SELECT description FROM transactions").fetch_one(&pool).await.unwrap();
+        assert_eq!(description, "Pizza day");
+        let res = send("GET", &format!("/attachments/{attachment}"), &cookie, form.clone(), vec![]).await.unwrap();
+        assert_eq!(body(res).await, receipt);
+        let res = send("GET", "/settings/before-restore.zip", &cookie, form.clone(), vec![]).await.unwrap();
+        assert!(body(res).await.starts_with(b"PK"), "the records from before download as a plain zip");
+        assert_eq!(plain_files(&root), Vec::<std::path::PathBuf>::new());
+
+        // The operator's backup stays encrypted, and opens with the same key.
+        let copy = crate::hosted::backup(&root, &dir.join("backups"), Some(&DataKey::parse(&key_text).unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(plain_files(&copy), Vec::<std::path::PathBuf>::new());
+        assert!(crate::hosted::backup(&root, &dir.join("failed"), None).await.is_err(), "no key, no backup");
+        assert_eq!(std::fs::read_dir(dir.join("failed")).unwrap().count(), 0, "a failed backup leaves no folder");
+        let mailer = crate::hosted::mail::Mailer::Outbox(copy.join("outbox"));
+        let restored = Hosted::open(&copy, String::new(), mailer, 1 << 30, Some(DataKey::parse(&key_text).unwrap()))
+            .await
+            .unwrap();
+        let pac = restored.pac(pac_id).await.unwrap().unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM attachments")
+            .fetch_one(&restored.pac_pool(&pac).await.unwrap())
+            .await
+            .unwrap();
+        assert_eq!(n, 1);
+        let stored = std::fs::read(copy.join("pacs").join(&pac.folder).join("receipts").join(&stored)).unwrap();
+        assert_eq!(restored.files(&pac).open(stored).unwrap(), receipt);
+        let mailer = crate::hosted::mail::Mailer::Outbox(copy.join("outbox"));
+        let err = Hosted::open(&copy, String::new(), mailer, 1 << 30, None).await.err().unwrap();
+        assert!(err.to_string().contains("are encrypted. Set PAC_DATA_KEY"), "{err}");
+        hosted.close().await;
+        restored.close().await;
         let _ = std::fs::remove_dir_all(dir);
     }
 }
