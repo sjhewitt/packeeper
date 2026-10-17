@@ -35,10 +35,11 @@
 {% for f in p.funds %}
 <div class="panel" style="padding: 0;">
   <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">{{ f.title() }}</h2></div>
-  <table>
+  <div class="table-scroll">
+  <table class="sticky-first">
     <thead><tr><th>Line item</th><th class="num">{{ p.base.label }} budget</th><th class="num">{{ p.base.label }} actual</th><th class="num">{{ p.target.label }} proposed</th><th class="num">Change</th><th>Notes</th></tr></thead>
     <tbody>
-      <tr class="section"><td colspan="6">Income</td></tr>
+      <tr class="section"><td colspan="6"><span>Income</span></td></tr>
       {% for l in f.income %}
       <tr>
         <td>{{ l.name }}</td>
@@ -50,7 +51,7 @@
       </tr>
       {% endfor %}
       <tr class="subtotal"><td>Total income</td><td class="num">{{ f.income_prior_budget() }}</td><td class="num">{{ f.income_prior_actual() }}</td><td class="num">{{ f.income_proposed() }}</td><td class="num">{{ f.income_proposed() - f.income_prior_budget() }}</td><td></td></tr>
-      <tr class="section"><td colspan="6">Expenses</td></tr>
+      <tr class="section"><td colspan="6"><span>Expenses</span></td></tr>
       {% for l in f.expense %}
       <tr>
         <td>{{ l.name }}</td>
@@ -65,6 +66,7 @@
       <tr class="total"><td>Surplus / (deficit)</td><td class="num">{{ f.net_prior_budget() }}</td><td class="num">{{ f.net_prior_actual() }}</td><td class="num {% if f.net_proposed().is_negative() %}neg{% endif %}">{{ f.net_proposed() }}</td><td></td><td></td></tr>
     </tbody>
   </table>
+  </div>
   <p class="small muted" style="padding: 0 18px 12px;">Fund balance on {{ p.actuals_to.format("%B %-d, %Y") }}: {{ f.balance_now }}.{% if f.net_proposed().is_negative() %} A deficit of {{ f.net_proposed().abs() }} draws on this balance.{% endif %}</p>
 </div>
 {% endfor %}

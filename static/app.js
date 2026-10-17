@@ -44,6 +44,16 @@
   });
 })();
 
+// On a narrow screen, the menu button shows and hides the page links.
+(function () {
+  var button = document.querySelector('header .menu-toggle');
+  if (!button) return;
+  button.addEventListener('click', function () {
+    var open = button.parentElement.classList.toggle('open');
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+})();
+
 // A line item can name a fundraiser. The "no fundraiser" choice beside a
 // line item says which fundraiser the chosen line item gives. Each line item
 // option carries the name in data-fundraiser.

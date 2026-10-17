@@ -24,7 +24,7 @@
 
 <div class="panel" style="padding: 0;">
   <table>
-    <thead><tr><th>Fundraiser</th><th class="num">Income</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Goal</th><th>Progress</th>{% if self.has_last_year() %}<th class="num">Last year</th>{% endif %}</tr></thead>
+    <thead><tr><th>Fundraiser</th><th class="num hide-phone">Income</th><th class="num hide-phone">Costs</th><th class="num">Net</th><th class="num hide-phone">Goal</th><th>Progress</th>{% if self.has_last_year() %}<th class="num hide-phone">Last year</th>{% endif %}</tr></thead>
     <tbody>
     {% for r in rows %}
       <tr>
@@ -33,28 +33,28 @@
           {% if !r.fundraiser.active %}<span class="tag muted">inactive</span>{% endif %}
           <br><span class="small muted">{% if r.totals.is_empty() %}nothing yet this year{% else %}{{ r.totals.parts }} transaction part(s){% endif %}</span>
         </td>
-        <td class="num">{{ r.totals.income }}</td>
-        <td class="num">{{ r.totals.costs }}</td>
+        <td class="num hide-phone">{{ r.totals.income }}</td>
+        <td class="num hide-phone">{{ r.totals.costs }}</td>
         <td class="num {% if r.net().is_negative() %}neg{% endif %}"><strong>{{ r.net() }}</strong></td>
-        <td class="num">{% if let Some(g) = r.goal %}{{ g }}{% else %}<span class="muted">–</span>{% endif %}</td>
+        <td class="num hide-phone">{% if let Some(g) = r.goal %}{{ g }}{% else %}<span class="muted">–</span>{% endif %}</td>
         <td style="min-width: 140px;">
           {% if let Some(p) = r.percent() %}
           <div class="bar"><span style="width: {{ r.bar() }}%; {% if r.reached() %}background: var(--good);{% endif %}"></span></div>
           <span class="small {% if r.reached() %}pos{% else %}muted{% endif %}">{{ p }}%{% if let Some(m) = r.to_go() %} · {{ m }} to go{% else %} · goal reached{% endif %}</span>
           {% endif %}
         </td>
-        {% if self.has_last_year() %}<td class="num">{% if let Some(n) = r.last_year_net() %}{{ n }}{% else %}<span class="muted">–</span>{% endif %}</td>{% endif %}
+        {% if self.has_last_year() %}<td class="num hide-phone">{% if let Some(n) = r.last_year_net() %}{{ n }}{% else %}<span class="muted">–</span>{% endif %}</td>{% endif %}
       </tr>
     {% endfor %}
     {% if rows.is_empty() %}<tr><td colspan="7" class="muted" style="padding: 18px;">No fundraisers yet. Add one below, such as Purdy's chocolates, hot lunch, or the spring fair.</td></tr>
     {% else %}
       <tr class="total">
         <td>Total</td>
-        <td class="num">{{ total.income }}</td>
-        <td class="num">{{ total.costs }}</td>
+        <td class="num hide-phone">{{ total.income }}</td>
+        <td class="num hide-phone">{{ total.costs }}</td>
         <td class="num">{{ total.net() }}</td>
-        <td class="num">{% if self.any_goal() %}{{ self.goal_total() }}{% endif %}</td>
-        <td></td>{% if self.has_last_year() %}<td></td>{% endif %}
+        <td class="num hide-phone">{% if self.any_goal() %}{{ self.goal_total() }}{% endif %}</td>
+        <td></td>{% if self.has_last_year() %}<td class="hide-phone"></td>{% endif %}
       </tr>
     {% endif %}
     </tbody>

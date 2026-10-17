@@ -10,9 +10,10 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <header class="top">
+  <header class="top has-menu">
     <a class="brand" href="/"><img src="/static/logo.svg" alt="" width="28" height="28"><span>{{ layout.app_name() }}</span></a>
-    <nav>
+    <button type="button" class="menu-toggle" aria-expanded="false" aria-controls="app-nav"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Menu</button>
+    <nav id="app-nav">
       <a href="/" {% if layout.nav == "dashboard" %}class="on"{% endif %}>Dashboard</a>
       <a href="/transactions" {% if layout.nav == "transactions" %}class="on"{% endif %}>Transactions{% if layout.counts.uncategorized > 0 %}<span class="count" title="Transactions with no line item">{{ layout.counts.uncategorized }}</span>{% endif %}</a>
       {% if layout.can_edit %}<a href="/import" {% if layout.nav == "import" %}class="on"{% endif %}>Import</a>{% endif %}

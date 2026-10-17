@@ -28,7 +28,7 @@
         <tr>
           {% if layout.can_edit %}
           <td colspan="2">
-            <form method="post" action="/meetings/{{ m.id }}" class="inline" style="display: flex; gap: 6px;">
+            <form method="post" action="/meetings/{{ m.id }}" class="inline meeting-row" style="display: flex; gap: 6px;">
               <input type="hidden" name="fy" value="{{ fy.id }}">
               <input type="date" name="date" value="{{ m.date }}" aria-label="Date" style="width: auto;">
               <input type="text" name="note" value="{{ m.note }}" placeholder="Note" aria-label="Note">
@@ -46,10 +46,10 @@
     </table>
     {% endif %}
     {% if layout.can_edit %}
-    <form method="post" action="/meetings" style="display: flex; gap: 6px; margin-top: 14px; align-items: end;">
+    <form method="post" action="/meetings" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; align-items: end;">
       <input type="hidden" name="fy" value="{{ fy.id }}">
       <div class="field" style="margin: 0;"><label for="new_date">Add a meeting</label><input type="date" id="new_date" name="date" required></div>
-      <div class="field" style="margin: 0; flex: 1;"><label for="new_note">Note</label><input type="text" id="new_note" name="note" placeholder="Such as: the AGM"></div>
+      <div class="field" style="margin: 0; flex: 1 1 140px;"><label for="new_note">Note</label><input type="text" id="new_note" name="note" placeholder="Such as: the AGM"></div>
       <button class="secondary">Add</button>
     </form>
     {% endif %}
@@ -68,7 +68,7 @@
       </div>
     </div>
     <div class="field"><label>No meeting in</label>
-      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 10px;">
+      <div class="month-grid">
         {% for (n, name) in months %}<label class="check small"><input type="checkbox" name="skip" value="{{ n }}" {% if self.skips(n) %}checked{% endif %}> {{ name }}</label>{% endfor %}
       </div>
     </div>

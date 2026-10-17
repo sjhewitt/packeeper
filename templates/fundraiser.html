@@ -75,21 +75,21 @@
 
 <div class="panel" style="padding: 0;">
   <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Transactions in {{ fy.label }}</h2></div>
-  <table>
+  <table class="tx-list">
     <thead><tr><th>Date</th><th>Description</th><th>Line item</th><th class="num">Amount</th><th>Receipt</th></tr></thead>
     <tbody>
     {% for p in parts %}
       <tr {% if p.needs_receipt %}class="flagged"{% endif %}>
-        <td class="nowrap">{{ p.date.format("%b %-d, %Y") }}</td>
+        <td class="nowrap c-date">{{ p.date.format("%b %-d, %Y") }}</td>
         <td class="desc">
           <a href="/transactions/{{ p.transaction_id }}">{{ p.name }}</a>
           {% if !p.purpose.is_empty() %}<span class="muted small"> · {{ p.purpose }}</span>{% endif %}
           <span class="bank">{{ p.account_name }}{% if p.split %} · part of a split{% endif %}{% if !p.memo.is_empty() %} · {{ p.memo }}{% endif %}</span>
           {% if !p.cleared %}<span class="tag muted">not cleared</span>{% endif %}
         </td>
-        <td>{{ p.line_item }}</td>
-        <td class="num {% if p.amount().is_negative() %}neg{% endif %}">{{ p.amount() }}</td>
-        <td class="nowrap">{% if p.receipts > 0 %}<span class="tag good">rcpt</span>{% else if p.needs_receipt %}<span class="tag bad">no rcpt</span>{% endif %}</td>
+        <td class="c-line">{{ p.line_item }}</td>
+        <td class="num c-amount {% if p.amount().is_negative() %}neg{% endif %}">{{ p.amount() }}</td>
+        <td class="nowrap c-receipt">{% if p.receipts > 0 %}<span class="tag good">rcpt</span>{% else if p.needs_receipt %}<span class="tag bad">no rcpt</span>{% endif %}</td>
       </tr>
     {% endfor %}
     {% if parts.is_empty() %}<tr><td colspan="5" class="muted" style="padding: 18px;">No transactions in {{ fy.label }}. Open a general-account transaction and choose this fundraiser beside the line item.</td></tr>{% endif %}
@@ -100,13 +100,13 @@
 <div class="panel" style="padding: 0;">
   <div style="padding: 14px 18px 0;"><h2 style="margin: 0 0 8px;">Year by year</h2></div>
   <table>
-    <thead><tr><th>Fiscal year</th><th class="num">Income</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Goal</th></tr></thead>
+    <thead><tr><th>Fiscal year</th><th class="num">Income</th><th class="num hide-phone">Costs</th><th class="num">Net</th><th class="num">Goal</th></tr></thead>
     <tbody>
     {% for (y, t, goal) in history %}
       <tr>
         <td><a href="/fundraisers/{{ f.id }}?fy={{ y.id }}">{{ y.label }}</a>{% if y.id == fy.id %} <span class="tag">shown</span>{% endif %}</td>
         <td class="num">{{ t.income }}</td>
-        <td class="num">{{ t.costs }}</td>
+        <td class="num hide-phone">{{ t.costs }}</td>
         <td class="num {% if t.net().is_negative() %}neg{% endif %}">{{ t.net() }}</td>
         <td class="num">{% if let Some(g) = goal %}{{ g }}{% else %}<span class="muted">–</span>{% endif %}</td>
       </tr>

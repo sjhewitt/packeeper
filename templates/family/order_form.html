@@ -24,6 +24,7 @@
           <td class="nowrap">{{ d.label() }}</td>
           {% for c in children %}
           <td>
+            <span class="cell-label" aria-hidden="true">{{ c.name }}</span>
             <select name="{{ self.field(c.id, d.id) }}" aria-label="Lunch for {{ c.name }} on {{ d.label() }}">
               <option value="">No lunch</option>
               {% for m in menu %}<option value="{{ m.item_id }}" {% if self.is_picked(c.id, d.id, m.item_id) %}selected{% endif %}>{{ m.name }} – {{ m.price() }}</option>{% endfor %}

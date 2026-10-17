@@ -88,12 +88,12 @@ h3 { font-size: 15px; margin: 18px 0 8px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .page-head .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; overflow-x: auto; }
 .panel > h2:first-child, .panel > h3:first-child { margin-top: 0; }
 
 .grid { display: grid; gap: 16px; }
-.grid.two { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
-.grid.cards { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-bottom: 18px; }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
+.grid.cards { grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); margin-bottom: 18px; }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
 .card .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
@@ -141,7 +141,7 @@ form.inline { display: inline; }
 label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .field { margin-bottom: 12px; }
 .field .hint { font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 3px; }
-.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 16px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 0 16px; }
 input[type=text], input[type=date], input[type=number], input[type=password], input[type=month], input[type=search], select, textarea {
   font: inherit;
   font-size: 14px;
@@ -203,8 +203,15 @@ button:hover, .button:hover { filter: brightness(1.08); }
 .receipt .doc { height: 110px; display: flex; align-items: center; justify-content: center; background: #f2f4f6; border-radius: 4px; margin-bottom: 6px; font-weight: 700; color: var(--muted); }
 .receipt .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.dropzone { border: 2px dashed #c3cbd3; border-radius: var(--radius); padding: 18px; text-align: center; color: var(--muted); background: #fafbfc; }
+.dropzone { border: 2px dashed #c3cbd3; border-radius: var(--radius); padding: 18px; text-align: center; color: var(--muted); background: #fafbfc; font-size: inherit; font-weight: 400; margin: 0; cursor: pointer; }
+.dropzone u { color: var(--accent); }
 .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
+.touch-only { display: none; }
+/* Phones and tablets have no mouse to drag files with. */
+@media (hover: none) and (pointer: coarse) {
+  .touch-only { display: inline; }
+  .no-touch { display: none; }
+}
 
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
 dl.facts dt { color: var(--muted); }
@@ -243,7 +250,112 @@ details.help ul { margin: 6px 0 0; padding-left: 20px; font-size: 14px; columns:
   header.top nav a { padding: 6px 7px; font-size: 14px; }
 }
 
+/* Phones and small tablets. */
+header.top .menu-toggle { display: none; }
+.cell-label { display: none; }
+.table-scroll { overflow-x: auto; }
+.month-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px 10px; }
+@media (max-width: 800px) {
+  /* The page links go behind a menu button. */
+  header.top.has-menu { flex-wrap: wrap; height: auto; gap: 0 14px; }
+  header.top.has-menu .brand { min-height: 52px; }
+  header.top.has-menu .brand span { display: inline; }
+  header.top .menu-toggle { display: inline-flex; margin-left: auto; background: transparent; border-color: rgba(255,255,255,.4); color: #fff; }
+  header.top.has-menu nav, header.top.has-menu .org, header.top.has-menu .user { display: none; }
+  header.top.has-menu.open nav { display: flex; flex-direction: column; flex-basis: 100%; overflow: visible; padding-bottom: 8px; }
+  header.top.has-menu.open nav a { padding: 10px 12px; font-size: 16px; }
+  header.top.has-menu.open .org, header.top.has-menu.open .user { display: block; flex-basis: 100%; max-width: none; padding: 10px 12px; font-size: 14px; border-top: 1px solid rgba(255,255,255,.2); }
+  header.top.has-menu.open .org-name { display: inline; }
+  header.top.has-menu.open .user:last-child { margin-bottom: 8px; }
+
+  /* A list of transactions shows each one as a card. */
+  table.tx-list, table.tx-list tbody { display: block; }
+  table.tx-list thead { display: none; }
+  table.tx-list tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "desc desc amount" "date account receipt" "line line line" "fundraiser fundraiser fundraiser"; gap: 2px 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  table.tx-list tr:last-child { border-bottom: 0; }
+  table.tx-list td { display: block; padding: 0; border: 0; min-width: 0; background: none; }
+  table.tx-list tr.flagged { background: #fffaf0; }
+  table.tx-list tbody tr:hover td { background: none; }
+  table.tx-list td.desc { grid-area: desc; max-width: none; }
+  table.tx-list .c-amount { grid-area: amount; font-weight: 600; }
+  table.tx-list .c-date { grid-area: date; }
+  table.tx-list .c-date, table.tx-list .c-account { font-size: 13px; color: var(--muted); }
+  table.tx-list .c-account { grid-area: account; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.tx-list .c-receipt { grid-area: receipt; text-align: right; }
+  table.tx-list .c-line { grid-area: line; }
+  table.tx-list .c-line select { width: 100%; max-width: none; margin-top: 6px; }
+  table.tx-list .c-fundraiser { grid-area: fundraiser; display: flex; align-items: baseline; gap: 8px; }
+  table.tx-list .c-fundraiser .cell-label { display: inline; flex: none; font-size: 13px; color: var(--muted); }
+  table.tx-list .c-fundraiser select { flex: 1; min-width: 0; max-width: none; margin-top: 6px; }
+  table.tx-list .c-none { display: none; }
+}
+
+/* Phones. */
+@media (max-width: 640px) {
+  header.top { padding: 0 12px; gap: 0 10px; }
+  /* A parent's page header: the logo and its words, then the person. */
+  header.top:not(.has-menu) nav { display: none; }
+  header.top:not(.has-menu) .brand span { display: inline; }
+  header.top:not(.has-menu) .user { margin-left: auto; }
+  main { padding: 16px 12px; }
+  footer.app { padding: 8px 12px 24px; }
+  .demo-banner, .update-banner { padding: 8px 12px; }
+  h1 { font-size: 22px; }
+  h2 { margin-top: 22px; }
+  .page-head { margin-bottom: 12px; }
+  .panel { padding: 14px; }
+  .grid { gap: 12px; }
+  .grid.cards { margin-bottom: 12px; }
+  th, td { padding: 7px 6px; }
+  .tag { white-space: normal; }
+  td.desc { max-width: none; min-width: 160px; }
+  /* iPhones zoom into a field with text smaller than 16px. */
+  input[type=text], input[type=date], input[type=number], input[type=password], input[type=month], input[type=search], select, textarea, select.compact { font-size: 16px; }
+  button, .button { padding: 8px 14px; }
+  button.small, .button.small { padding: 5px 10px; }
+  details.help ul { columns: 1; }
+  dl.facts { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); overflow-wrap: anywhere; }
+
+  .filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .filters select, .filters input[type=search] { width: 100%; min-width: 0; }
+  .filters .wide { grid-column: 1 / -1; }
+
+  /* A wide table keeps its first column in view while it scrolls. */
+  table.sticky-first td:first-child, table.sticky-first th:first-child { position: sticky; left: 0; z-index: 1; min-width: 8.5em; background: var(--panel); box-shadow: inset -1px 0 0 var(--line); }
+  table.sticky-first th:first-child, table.sticky-first tr.section td:first-child { background: #fafbfc; }
+  table.sticky-first tr.section td:first-child { box-shadow: none; }
+  table.sticky-first tr.section span { position: sticky; left: 8px; }
+  table.sticky-first input[name=notes] { min-width: 10em; }
+
+  /* The hot lunch order form shows each day as a block, with a list for each child. */
+  table.order-grid, table.order-grid tbody { display: block; }
+  table.order-grid thead { display: none; }
+  table.order-grid tr { display: block; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  table.order-grid td { display: block; padding: 0; border: 0; }
+  table.order-grid td:first-child { font-weight: 700; margin-bottom: 4px; }
+  table.order-grid td + td { margin-bottom: 8px; }
+  table.order-grid .cell-label { display: block; font-size: 13px; color: var(--muted); }
+  .order-grid select { min-width: 0; }
+
+  .hide-phone { display: none; }
+  .panel > .row-form + .row-form { padding-top: 12px; border-top: 1px solid var(--line); }
+
+  /* The parts of a split: the line item on its own line. */
+  #splits .split-row:first-child { display: none; }
+  .split-row { grid-template-columns: minmax(0, 1fr) 100px 36px; grid-template-areas: "line line line" "memo amount remove"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .with-fundraisers .split-row { grid-template-columns: minmax(0, 1fr) 100px 36px; grid-template-areas: "line line line" "fundraiser amount remove" "memo memo memo"; }
+  .split-row .s-line { grid-area: line; }
+  .split-row .s-amount { grid-area: amount; }
+  .split-row .s-memo { grid-area: memo; }
+  .split-row .s-remove { grid-area: remove; }
+  .split-row .s-fundraiser { grid-area: fundraiser; }
+
+  .meeting-row { flex-wrap: wrap; }
+  .meeting-row input[type=text] { flex: 1 1 120px; }
+}
+
 @media print {
   header.top, .no-print { display: none; }
+  .panel { overflow: visible; }
   main { padding: 0; }
 }

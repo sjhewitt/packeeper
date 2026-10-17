@@ -159,9 +159,10 @@
   <p class="small muted" style="margin-top: 14px;">File uploads are off in the public demo. In your own copy, drop photos or PDFs of receipts here.</p>
   {% else if layout.can_edit %}
   <form method="post" action="/transactions/{{ r.tx.id }}/attachments" enctype="multipart/form-data" style="margin-top: 14px;" id="upload">
-    <div class="dropzone" id="dropzone">
-      Drop photos or PDFs here, or <label style="display:inline; color: var(--accent); cursor: pointer;"><u>choose files</u><input type="file" name="files" multiple accept="image/*,application/pdf,.heic" style="display:none" onchange="this.form.submit()"></label>
-    </div>
+    <label class="dropzone" id="dropzone">
+      <span class="no-touch">Drop photos or PDFs here, or <u>choose files</u></span><span class="touch-only"><u>Take a photo or choose files</u></span>
+      <input type="file" name="files" multiple accept="image/*,application/pdf,.heic" style="display:none" onchange="this.form.submit()">
+    </label>
   </form>
   <script>
     (function () {

@@ -1,6 +1,6 @@
 <tr id="tx-{{ r.tx.id }}" {% if !r.is_categorized() || r.needs_receipt() %}class="flagged"{% endif %}>
-  <td class="nowrap">{{ r.tx.date.format("%b %-d, %Y") }}</td>
-  <td>{{ r.account_name }}{% if r.account_kind == "gaming" %} <span class="tag gaming">gaming</span>{% endif %}</td>
+  <td class="nowrap c-date">{{ r.tx.date.format("%b %-d, %Y") }}</td>
+  <td class="c-account">{{ r.account_name }}{% if r.account_kind == "gaming" %} <span class="tag gaming">gaming</span>{% endif %}</td>
   <td class="desc">
     <a href="/transactions/{{ r.tx.id }}">{{ r.tx.display_name() }}</a>
     {% if !r.tx.purpose.is_empty() %}<span class="muted small"> · {{ r.tx.purpose }}</span>{% endif %}
@@ -8,7 +8,7 @@
     {% if !r.tx.cleared %}<span class="tag muted" title="Entered by hand; the bank has not shown it yet">not cleared</span>{% endif %}
     {% if r.needs_event %}<a href="/transactions/{{ r.tx.id }}" class="tag warn" title="Choose the gaming event licence">choose licence</a>{% endif %}
   </td>
-  <td>
+  <td class="c-line">
     {% if r.is_split() %}
       <a href="/transactions/{{ r.tx.id }}" class="small">Split: {{ r.line_names() }}</a>
       {% if !r.is_categorized() %}<span class="tag warn">{{ r.unallocated().abs() }} left</span>{% endif %}
@@ -28,24 +28,27 @@
     {% endif %}
   </td>
   {% if !fundraisers.is_empty() %}
-  <td>
+  <td class="c-fundraiser">
     {% if r.account_kind == "gaming" %}
     {% else if r.is_split() %}
+      <span class="cell-label">Fundraiser</span>
       <a href="/transactions/{{ r.tx.id }}" class="small">{% if r.fundraiser_names().is_empty() %}none{% else %}{{ r.fundraiser_names() }}{% endif %}</a>
     {% else if r.allocation_count == 0 %}
-      <span class="small muted" title="Choose a line item first">–</span>
+      <span class="small muted c-none" title="Choose a line item first">–</span>
     {% else if can_edit %}
+      <span class="cell-label">Fundraiser</span>
       <select class="compact fundraiser" name="fundraiser_id" hx-post="/transactions/{{ r.tx.id }}/fundraiser" hx-target="#tx-{{ r.tx.id }}" hx-swap="outerHTML" aria-label="Fundraiser">
         <option value="">—</option>
         {% for f in fundraisers %}{% if f.active || r.is_fundraiser(f.id) %}<option value="{{ f.id }}" {% if r.is_fundraiser(f.id) %}selected{% endif %}>{{ f.name }}</option>{% endif %}{% endfor %}
       </select>
-    {% else %}
+    {% else if !r.fundraiser_names().is_empty() %}
+      <span class="cell-label">Fundraiser</span>
       {{ r.fundraiser_names() }}
     {% endif %}
   </td>
   {% endif %}
-  <td class="num {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
-  <td class="nowrap">
+  <td class="num c-amount {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
+  <td class="nowrap c-receipt">
     {% if r.receipt_count > 0 %}<a href="/transactions/{{ r.tx.id }}" class="tag good" title="Receipts attached">{{ r.receipt_count }} rcpt</a>
     {% else if r.needs_receipt() %}<a href="/transactions/{{ r.tx.id }}" class="tag bad" title="Attach a receipt">no rcpt</a>{% endif %}
   </td>

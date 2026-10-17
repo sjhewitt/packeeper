@@ -51,11 +51,11 @@
     </select>
   </div>
   {% endif %}
-  <div class="field">
+  <div class="field wide">
     <label for="q">Search</label>
     <input type="search" id="q" name="q" value="{{ search }}" placeholder="Description, payee, notes">
   </div>
-  <div class="field">
+  <div class="field wide">
     <label class="check"><input type="checkbox" name="uncategorized" value="1" {% if uncategorized %}checked{% endif %} onchange="this.form.submit()"> No line item</label>
     <label class="check"><input type="checkbox" name="missing_receipt" value="1" {% if missing_receipt %}checked{% endif %} onchange="this.form.submit()"> No receipt</label>
     <label class="check"><input type="checkbox" name="uncleared" value="1" {% if uncleared %}checked{% endif %} onchange="this.form.submit()"> Not cleared</label>
@@ -64,7 +64,7 @@
 </form>
 
 <div class="panel" style="padding: 0;">
-  <table>
+  <table class="tx-list">
     <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Line item</th>{% if !fundraisers.is_empty() %}<th>Fundraiser</th>{% endif %}<th class="num">Amount</th><th>Receipt</th></tr></thead>
     <tbody>
       {% for r in rows %}{% include "partials/tx_row.html" %}{% endfor %}

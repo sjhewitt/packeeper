@@ -59,13 +59,13 @@
   <div class="panel">
     <h2>{{ f.title() }} <span class="muted small">year to date</span></h2>
     <table>
-      <thead><tr><th></th><th class="num">Budget</th><th class="num">Actual</th><th style="width:30%"></th></tr></thead>
+      <thead><tr><th></th><th class="num">Budget</th><th class="num">Actual</th><th class="hide-phone" style="width:30%"></th></tr></thead>
       <tbody>
         <tr><td>Income</td><td class="num">{{ f.income_budget() }}</td><td class="num">{{ f.income_ytd() }}</td>
-          <td><div class="bar"><span style="width: {% if f.income_budget().cents() > 0 %}{{ (f.income_ytd().cents() * 100 / f.income_budget().cents()).clamp(0, 100) }}{% else %}0{% endif %}%"></span></div></td></tr>
+          <td class="hide-phone"><div class="bar"><span style="width: {% if f.income_budget().cents() > 0 %}{{ (f.income_ytd().cents() * 100 / f.income_budget().cents()).clamp(0, 100) }}{% else %}0{% endif %}%"></span></div></td></tr>
         <tr><td>Expenses</td><td class="num">{{ f.expense_budget() }}</td><td class="num">{{ f.expense_ytd() }}</td>
-          <td><div class="bar {% if f.expense_ytd() > f.expense_budget() %}over{% endif %}"><span style="width: {% if f.expense_budget().cents() > 0 %}{{ (f.expense_ytd().cents() * 100 / f.expense_budget().cents()).clamp(0, 100) }}{% else %}0{% endif %}%"></span></div></td></tr>
-        <tr class="total"><td>Balance now</td><td></td><td class="num">{{ f.closing }}</td><td class="muted small">started year at {{ f.year_opening }}</td></tr>
+          <td class="hide-phone"><div class="bar {% if f.expense_ytd() > f.expense_budget() %}over{% endif %}"><span style="width: {% if f.expense_budget().cents() > 0 %}{{ (f.expense_ytd().cents() * 100 / f.expense_budget().cents()).clamp(0, 100) }}{% else %}0{% endif %}%"></span></div></td></tr>
+        <tr class="total"><td>Balance now</td><td></td><td class="num">{{ f.closing }}</td><td class="muted small hide-phone">started year at {{ f.year_opening }}</td></tr>
       </tbody>
     </table>
     <p class="small"><a href="/budget">Budget detail</a></p>
@@ -77,13 +77,13 @@
 <div class="panel">
   <h2>Fundraisers <span class="muted small">year to date</span></h2>
   <table>
-    <thead><tr><th>Fundraiser</th><th class="num">Income</th><th class="num">Costs</th><th class="num">Net</th><th style="width:30%">Goal</th></tr></thead>
+    <thead><tr><th>Fundraiser</th><th class="num hide-phone">Income</th><th class="num hide-phone">Costs</th><th class="num">Net</th><th style="width:30%">Goal</th></tr></thead>
     <tbody>
     {% for r in fundraising %}
       <tr>
         <td><a href="/fundraisers/{{ r.fundraiser.id }}">{{ r.fundraiser.name }}</a></td>
-        <td class="num">{{ r.totals.income }}</td>
-        <td class="num">{{ r.totals.costs }}</td>
+        <td class="num hide-phone">{{ r.totals.income }}</td>
+        <td class="num hide-phone">{{ r.totals.costs }}</td>
         <td class="num {% if r.net().is_negative() %}neg{% endif %}">{{ r.net() }}</td>
         <td>
           {% if let Some(g) = r.goal %}
@@ -116,16 +116,16 @@
 
 <div class="panel">
   <h2>Recent transactions</h2>
-  <table>
+  <table class="tx-list">
     <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Line item</th><th class="num">Amount</th></tr></thead>
     <tbody>
     {% for r in recent %}
       <tr {% if !r.is_categorized() %}class="flagged"{% endif %}>
-        <td class="nowrap">{{ r.tx.date.format("%b %-d") }}</td>
-        <td>{{ r.account_name }}</td>
+        <td class="nowrap c-date">{{ r.tx.date.format("%b %-d") }}</td>
+        <td class="c-account">{{ r.account_name }}</td>
         <td class="desc"><a href="/transactions/{{ r.tx.id }}">{{ r.tx.display_name() }}</a></td>
-        <td>{% if r.is_categorized() %}{{ r.line_names() }}{% else %}<span class="tag warn">uncategorized</span>{% endif %}</td>
-        <td class="num {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
+        <td class="c-line">{% if r.is_categorized() %}{{ r.line_names() }}{% else %}<span class="tag warn">uncategorized</span>{% endif %}</td>
+        <td class="num c-amount {% if r.tx.amount().is_negative() %}neg{% endif %}">{{ r.tx.amount() }}</td>
       </tr>
     {% endfor %}
     </tbody>
