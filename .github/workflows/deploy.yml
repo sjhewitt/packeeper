@@ -1,6 +1,13 @@
-# Deploys a published release to Opalstack: the website (site/) to pk_site,
-# and the server program to the demo and the hosted server. It runs when you
-# publish a release on GitHub, or from the Actions tab for any release tag.
+# Deploys to Opalstack, in one of two ways:
+#
+# - A published release: the server program goes to the demo and the hosted
+#   server. Run it from the Actions tab with a tag to deploy that release.
+# - A push to main that changes site/: the website goes to pk_site at once,
+#   so what it says must be true when you push. Run it from the Actions tab
+#   with no tag to deploy the website from main.
+#
+# A release does not copy the website: a release tagged before a change to
+# site/ would put the older website back.
 #
 # It needs the repository secret OPALSTACK_SSH_KEY: a private SSH key whose
 # public key is in pk_user's ~/.ssh/authorized_keys. See "Automatic deploys"
@@ -12,11 +19,14 @@ name: Deploy
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
+    paths: ["site/**"]
   workflow_dispatch:
     inputs:
       tag:
-        description: The release to deploy, such as v0.2.0
-        required: true
+        description: The release to deploy, such as v0.2.0. Leave it empty to deploy only the website from main.
+        required: false
 
 permissions:
   contents: read
@@ -42,6 +52,7 @@ jobs:
           ref: ${{ env.TAG }}
 
       - name: Download the server program from the release
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "$TAG" --pattern pac-keeper-linux-x86_64.tar.gz --repo "${{ github.repository }}"
@@ -60,9 +71,11 @@ jobs:
           printf '%s\n' "$KNOWN_HOST" > ~/.ssh/known_hosts
 
       - name: Copy the website
+        if: env.TAG == ''
         run: rsync -az --delete --exclude .DS_Store site/ "$SERVER:apps/pk_site/"
 
       - name: Install the program and restart the servers
+        if: env.TAG != ''
         run: |
           ssh "$SERVER" 'mkdir -p ~/downloads'
           scp pac-keeper-linux-x86_64.tar.gz "$SERVER:downloads/pac-keeper-$TAG.tar.gz"
@@ -81,3 +94,13 @@ jobs:
             [ "$code" = 200 ] || failed=1
           done
           exit $failed
+
+      - name: Check that the website is the new one
+        if: env.TAG == ''
+        run: |
+          curl -sf https://packeeper.ca/ -o live.html
+          if ! cmp -s live.html site/index.html; then
+            echo "https://packeeper.ca/ does not serve site/index.html from this commit." >&2
+            exit 1
+          fi
+          echo "https://packeeper.ca/ serves site/index.html from $(git rev-parse --short HEAD)."

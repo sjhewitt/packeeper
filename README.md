@@ -464,7 +464,12 @@ Test a restore every few months. Restore as above, then run `(set -a; . ~/apps/p
 
 ### Automatic deploys
 
-`.github/workflows/deploy.yml` deploys each release when you publish it on GitHub. It copies `site/` to `pk_site`, then runs the `upgrade` script on the server, and last checks the three public addresses. You can also run it from the Actions tab for any release tag.
+`.github/workflows/deploy.yml` deploys to Opalstack in two ways:
+
+- **A release.** When you publish a release on GitHub, it runs the `upgrade` script on the server with the release's program, then checks the three public addresses. A release does not copy the website.
+- **The website.** When a push to `main` changes `site/`, it copies `site/` to `pk_site` and checks that `packeeper.ca` serves the new page. The change is public at once, so push a change to `site/` only when what it says is true.
+
+From the Actions tab, run it with a release tag to deploy that release, or with no tag to deploy the website from `main`.
 
 Set it up once:
 
