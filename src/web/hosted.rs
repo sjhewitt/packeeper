@@ -995,11 +995,64 @@ pub struct OperatorRow {
     pub requester: Option<Person>,
     pub members: i64,
     pub storage: String,
+    /// Whether the PAC's database on disk is encrypted. None before it exists.
+    pub encrypted: Option<bool>,
+}
+
+impl OperatorRow {
+    fn database_tag(&self) -> &'static str {
+        match self.encrypted {
+            Some(true) => "good",
+            Some(false) => "warn",
+            None => "muted",
+        }
+    }
+
+    fn database_label(&self) -> &'static str {
+        match self.encrypted {
+            Some(true) => "Encrypted",
+            Some(false) => "Plain",
+            None => "None yet",
+        }
+    }
+}
+
+/// What the operator page says about encryption, from the files on disk.
+struct Encryption {
+    tag: &'static str,
+    label: &'static str,
+    detail: String,
+}
+
+impl Encryption {
+    /// `encrypted` and `plain` count control.db and the PACs' databases.
+    fn new(key: bool, encrypted: usize, plain: usize) -> Encryption {
+        let (tag, label, detail) = match (key, plain) {
+            (true, 0) => {
+                ("good", "Encrypted", format!("PAC_DATA_KEY is set. All databases are encrypted ({encrypted})."))
+            }
+            (true, _) => (
+                "bad",
+                "Partly encrypted",
+                format!(
+                    "PAC_DATA_KEY is set. Plain databases: {plain} of {}. Stop the server, then start it: it encrypts them.",
+                    encrypted + plain
+                ),
+            ),
+            (false, _) => (
+                "warn",
+                "Not encrypted",
+                "PAC_DATA_KEY is not set. See \"Encrypted records\" in the README.".to_string(),
+            ),
+        };
+        Encryption { tag, label, detail }
+    }
 }
 
 #[derive(Template)]
 #[template(path = "hosted/operator.html")]
 struct OperatorPage {
+    encryption: Encryption,
     requested: Vec<OperatorRow>,
     active: Vec<OperatorRow>,
     other: Vec<OperatorRow>,
@@ -1036,6 +1089,8 @@ pub async fn operator_page(
     let pacs: Vec<Pac> =
         sqlx::query_as("SELECT * FROM pacs ORDER BY created_at DESC").fetch_all(&hosted.control).await?;
     let (mut requested, mut active, mut other) = (Vec::new(), Vec::new(), Vec::new());
+    let control = crate::crypt::is_encrypted_database(&hosted.root.join("control.db"))?;
+    let (mut encrypted, mut plain) = if control { (1, 0) } else { (0, 1) };
     for pac in pacs {
         let requester = match pac.requested_by {
             Some(id) => hosted.person(id).await?,
@@ -1045,8 +1100,20 @@ pub async fn operator_page(
             .bind(pac.id)
             .fetch_one(&hosted.control)
             .await?;
-        let storage = size_label(folder_size(&hosted.pac_dir(&pac)));
-        let row = OperatorRow { pac, requester, members, storage };
+        let dir = hosted.pac_dir(&pac);
+        let storage = size_label(folder_size(&dir));
+        let db = dir.join("pac.db");
+        let pac_encrypted = match crate::crypt::is_encrypted_database(&db)? {
+            true => Some(true),
+            false if crate::crypt::is_plain_database(&db)? => Some(false),
+            false => None,
+        };
+        match pac_encrypted {
+            Some(true) => encrypted += 1,
+            Some(false) => plain += 1,
+            None => {}
+        }
+        let row = OperatorRow { pac, requester, members, storage, encrypted: pac_encrypted };
         match row.pac.status.as_str() {
             // Requests appear once the requester has confirmed their email.
             "requested" if row.requester.as_ref().is_some_and(|p| p.is_verified()) => requested.push(row),
@@ -1055,7 +1122,8 @@ pub async fn operator_page(
             _ => other.push(row),
         }
     }
-    render(OperatorPage { requested, active, other, msg: flash.msg })
+    let encryption = Encryption::new(hosted.encrypts(), encrypted, plain);
+    render(OperatorPage { encryption, requested, active, other, msg: flash.msg })
 }
 
 pub async fn operator_action(
@@ -1498,5 +1566,101 @@ mod tests {
         hosted.close().await;
         restored.close().await;
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The operator page says whether the databases on disk are encrypted:
+    /// for the server, and for each PAC.
+    #[cfg(feature = "encryption")]
+    #[tokio::test]
+    async fn the_operator_sees_whether_the_records_are_encrypted() {
+        use axum::body::Body;
+        use axum::http::header;
+        use tower::ServiceExt;
+
+        use crate::crypt::DataKey;
+
+        async fn operator_page(key: Option<DataKey>, plain_request: bool) -> String {
+            static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "pac-operator-encryption-test-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            let mailer = crate::hosted::mail::Mailer::Outbox(dir.join("outbox"));
+            let hosted =
+                Arc::new(Hosted::open(&dir, "https://app.example.org".into(), mailer, 1 << 30, key).await.unwrap());
+            let op = hosted.ensure_person("op@example.org", "Op").await.unwrap();
+            hosted.set_password(op.id, "a-long-password").await.unwrap();
+            hosted.mark_verified(op.id).await.unwrap();
+            sqlx::query("UPDATE people SET is_operator = 1 WHERE id = ?")
+                .bind(op.id)
+                .execute(&hosted.control)
+                .await
+                .unwrap();
+            hosted
+                .activate(hosted.request_pac(op.id, "Alpha PAC", "Alpha School", "", "").await.unwrap())
+                .await
+                .unwrap();
+            if plain_request {
+                // A PAC folder with a plain database, as if copied in while the server ran.
+                let id = hosted.request_pac(op.id, "Beta PAC", "Beta School", "", "").await.unwrap();
+                let pac_dir = hosted.pac_dir(&hosted.pac(id).await.unwrap().unwrap());
+                std::fs::create_dir_all(&pac_dir).unwrap();
+                let pool = crate::db::open(&pac_dir).await.unwrap();
+                pool.close().await;
+            }
+            let app = crate::web::router(AppState {
+                single: None,
+                hosted: Some(hosted.clone()),
+                renderer: Arc::new(crate::reports::pdf::Renderer::new()),
+                pdf_permits: Arc::new(tokio::sync::Semaphore::new(1)),
+                auth: true,
+                demo: None,
+                loopback_only: false,
+                desktop: None,
+                lunch: None,
+                key: axum_extra::extract::cookie::Key::generate(),
+            });
+            let send = |method: &str, path: &str, cookie: &str, form: &str| {
+                let req = axum::http::Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header(header::HOST, "app.example.org")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::from(form.to_string()))
+                    .unwrap();
+                app.clone().oneshot(req)
+            };
+            let res = send("POST", "/login", "", "username=op%40example.org&password=a-long-password").await.unwrap();
+            let cookie = res
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .find(|v| v.starts_with("pk_session="))
+                .expect("a session cookie")
+                .split(';')
+                .next()
+                .unwrap()
+                .to_string();
+            let res = send("GET", "/operator", &cookie, "").await.unwrap();
+            let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+            hosted.close().await;
+            let _ = std::fs::remove_dir_all(dir);
+            String::from_utf8_lossy(&body).into_owned()
+        }
+
+        let page = operator_page(Some(DataKey::generate()), false).await;
+        assert!(page.contains(r#"<span class="tag good">Encrypted</span> <span class="small muted">PAC_DATA_KEY is set. All databases are encrypted (2)."#), "{page}");
+        assert!(page.contains(r#"<td><span class="tag good">Encrypted</span></td>"#), "the PAC's row: {page}");
+
+        let page = operator_page(None, false).await;
+        assert!(page.contains(r#"<span class="tag warn">Not encrypted</span>"#), "{page}");
+        assert!(page.contains(r#"<td><span class="tag warn">Plain</span></td>"#), "the PAC's row: {page}");
+
+        let page = operator_page(Some(DataKey::generate()), true).await;
+        assert!(page.contains(r#"<span class="tag bad">Partly encrypted</span> <span class="small muted">PAC_DATA_KEY is set. Plain databases: 1 of 3."#), "{page}");
     }
 }

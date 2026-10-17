@@ -7,6 +7,7 @@
   <div class="actions"><a class="small" href="/operator/stats">Visits</a> <a class="small" href="/pacs">Your PACs</a></div>
 </div>
 {% if let Some(m) = msg %}<div class="flash ok">{{ m }}</div>{% endif %}
+<p>Records: <span class="tag {{ encryption.tag }}">{{ encryption.label }}</span> <span class="small muted">{{ encryption.detail }}</span></p>
 
 <h2>Waiting for approval ({{ requested.len() }})</h2>
 {% if requested.is_empty() %}<p class="muted">No requests.</p>{% else %}
@@ -32,13 +33,14 @@
 <h2>Active ({{ active.len() }})</h2>
 {% if active.is_empty() %}<p class="muted">No active PACs.</p>{% else %}
 <table>
-  <thead><tr><th>PAC</th><th class="num">Members</th><th class="num">Storage</th><th>Approved</th><th></th></tr></thead>
+  <thead><tr><th>PAC</th><th class="num">Members</th><th class="num">Storage</th><th>Database</th><th>Approved</th><th></th></tr></thead>
   <tbody>
   {% for r in active %}
     <tr>
       <td><strong>{{ r.pac.name }}</strong><br><span class="small muted">{{ r.pac.school }}</span></td>
       <td class="num">{{ r.members }}</td>
       <td class="num">{{ r.storage }}</td>
+      <td><span class="tag {{ r.database_tag() }}">{{ r.database_label() }}</span></td>
       <td class="nowrap small">{% if let Some(d) = r.pac.decided_at %}{{ d }}{% endif %}</td>
       <td><form method="post" action="/operator/pacs/{{ r.pac.id }}/suspend" class="inline" data-confirm="Suspend {{ r.pac.name }}? Its members cannot open it until you reactivate it."><button class="danger small">Suspend</button></form></td>
     </tr>
@@ -56,6 +58,7 @@
       <td><strong>{{ r.pac.name }}</strong><br><span class="small muted">{{ r.pac.school }}</span></td>
       <td>{{ r.pac.status }}</td>
       <td class="num">{{ r.storage }}</td>
+      <td><span class="tag {{ r.database_tag() }}">{{ r.database_label() }}</span></td>
       <td><form method="post" action="/operator/pacs/{{ r.pac.id }}/reactivate" class="inline"><button class="secondary small">Activate</button></form></td>
     </tr>
   {% endfor %}

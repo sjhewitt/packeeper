@@ -180,6 +180,11 @@ impl Hosted {
         self.root.join("pacs").join(&pac.folder)
     }
 
+    /// True when the server has PAC_DATA_KEY, and so encrypts the records.
+    pub fn encrypts(&self) -> bool {
+        self.data_key.is_some()
+    }
+
     /// How the PAC's receipts and bank files are stored: sealed with the
     /// PAC's own key when the server has PAC_DATA_KEY.
     pub fn files(&self, pac: &Pac) -> Files {

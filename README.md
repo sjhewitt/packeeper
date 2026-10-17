@@ -202,7 +202,7 @@ With `PAC_DATA_KEY`, the hosted server encrypts the records on disk. SQLCipher e
 1. Make a key: `pac-keeper new-data-key`. It writes 64 hex digits.
 2. Keep a copy in your password manager, away from the server. **If you lose the key, nobody can read the records or the backups. That includes you.**
 3. Put the key in the server's settings, outside the data folder: `PAC_DATA_KEY="..."`. Only the environment can give the key. There is no command-line option, so the key does not show in the list of running programs.
-4. Stop the server, then start it (on Opalstack: `~/apps/pk_app/stop && ~/apps/pk_app/start`). At start, it encrypts all records that are still plain, so you can turn this on for a server that has PACs already. It does not encrypt a database that another program has open. Do this as its own step, after the upgrade to a version with encryption. If the encryption stops with an error, fix the cause and start again: it continues where it stopped.
+4. Stop the server, then start it (on Opalstack: `~/apps/pk_app/stop && ~/apps/pk_app/start`). At start, it encrypts all records that are still plain, so you can turn this on for a server that has PACs already. It does not encrypt a database that another program has open. Do this as its own step, after the upgrade to a version with encryption. If the encryption stops with an error, fix the cause and start again: it continues where it stopped. The operator page (`/operator`) shows whether each database on disk is encrypted.
 
 What this protects:
 
