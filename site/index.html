@@ -202,6 +202,12 @@ section { padding-block: 84px; }
 .download code { white-space: nowrap; }
 .download-note { margin-top: 28px; color: var(--ink-soft); max-width: 46rem; }
 
+/* Origin story: a note in the margin of the ledger. */
+.story { max-width: 46rem; display: grid; gap: 18px; padding-left: 28px; position: relative; }
+.story::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--margin); opacity: .8; }
+.story h2 { margin-bottom: 4px; }
+.story p { color: var(--ink-soft); max-width: 36em; }
+
 /* FAQ */
 .faq { max-width: 46rem; display: grid; }
 .faq details { border-bottom: 1px solid var(--line); padding-block: 18px; }
@@ -249,7 +255,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
   <div class="hero ruled">
     <div class="wrap">
       <div class="hero-copy">
-        <p class="eyebrow">For BC Parent Advisory Committee treasurers</p>
+        <p class="eyebrow">By a BC Parent Advisory Committee treasurer</p>
         <h1>The PAC's books, <span class="kept">kept.<svg viewBox="0 0 60 60" aria-hidden="true"><path d="M8 32 L24 47 L54 10"/></svg></span></h1>
         <p class="lede">Import the bank statements, attach the receipts, and assign each transaction to the budget. PAC Keeper tracks every fundraiser, and it produces the monthly treasurer's report, the annual report for the AGM, and the Gaming Account Summary Report worksheet.</p>
         <div class="cta">
@@ -425,6 +431,18 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
     </div>
   </section>
 
+  <section id="story" class="ruled">
+    <div class="wrap">
+      <div class="story">
+        <p class="eyebrow">Why PAC Keeper exists</p>
+        <h2>Made by a PAC treasurer, for his own PAC first.</h2>
+        <p class="lede">PAC Keeper is a passion project. Simon, a volunteer PAC treasurer in SD42 (Maple Ridge and Pitt Meadows), built it in his own time, to solve the problems he had with the job.</p>
+        <p>Each month, he sorted the bank statement into budget lines by hand. Receipts came in envelopes, emails, and text messages. The gaming grant had its own account, its own rules, and its own year-end form. And the books lived in confusing spreadsheets.</p>
+        <p>So he made the tool he needed. Each feature on this page solved a problem with his own PAC's books first. Now any BC PAC can use it.</p>
+      </div>
+    </div>
+  </section>
+
   <section id="download">
     <div class="wrap">
       <div class="section-head">
@@ -524,7 +542,7 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wr
 
 <footer>
   <div class="wrap">
-    <span>PAC Keeper · packeeper.ca · Made in British Columbia for BC PACs</span>
+    <span>PAC Keeper · packeeper.ca · Made in British Columbia by a PAC treasurer, for BC PACs</span>
     <span>PAC Keeper is not affiliated with the Province of BC or Prospera Credit Union.</span>
   </div>
 </footer>
