@@ -4,7 +4,8 @@
 //! "combined" format) and saves a count for each day, so the counts stay after
 //! the logs rotate. It saves counts only: never an address, a browser, or a
 //! path from the app, where a path can hold a token. GitHub gives the download
-//! counts of the release files.
+//! counts of the release files, and the desktop app reports each time it opens
+//! (`record_open`).
 //!
 //! A visitor is one address with one browser, and a visit is one visitor on
 //! one day. These visitors are left out:
@@ -592,27 +593,92 @@ async fn save_downloads(control: &SqlitePool, totals: &[(&str, i64)]) -> anyhow:
     Ok(())
 }
 
+/// The `log` of the desktop app's opens in stat_counts.
+pub const DESKTOP: &str = "desktop";
+
+/// The kinds of computer that the desktop app runs on.
+const KINDS: [(&str, &str); 2] = [("mac", "Mac"), ("windows", "Windows")];
+
+/// One open of the desktop app, as the app reports it. The app sends no name
+/// or number for the computer. It says itself if this is its first open of
+/// the day, so each computer counts once a day.
+pub struct Open<'a> {
+    pub version: &'a str,
+    /// The kind of computer: mac or windows.
+    pub kind: &'a str,
+    /// The first open on this computer this day (UTC).
+    pub first_today: bool,
+    /// The first open that this computer reports.
+    pub new: bool,
+}
+
+/// Counts one open of the desktop app. Anyone can send one, so the version
+/// and the kind of computer must be known forms, or they count as "other".
+pub async fn record_open(control: &SqlitePool, open: &Open<'_>) -> anyhow::Result<()> {
+    let version = if valid_version(open.version) { open.version } else { "other" };
+    let kind = KINDS.iter().find(|(key, _)| *key == open.kind).map_or("other", |(key, _)| key);
+    let mut counts = vec![("opens", "")];
+    if open.first_today {
+        counts.extend([("computers", ""), ("kind", kind), ("version", version)]);
+    }
+    if open.new {
+        counts.push(("new", ""));
+    }
+    let day = Utc::now().date_naive().to_string();
+    let mut tx = control.begin().await?;
+    for (measure, name) in counts {
+        sqlx::query(
+            "INSERT INTO stat_counts (day, log, measure, name, n) VALUES (?, ?, ?, ?, 1)
+             ON CONFLICT (day, log, measure, name) DO UPDATE SET n = n + 1",
+        )
+        .bind(&day)
+        .bind(DESKTOP)
+        .bind(measure)
+        .bind(name)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A release number, such as 0.5.2.
+fn valid_version(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    (2..=4).contains(&parts.len())
+        && parts.iter().all(|p| (1..=5).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The name of a log's key, or of DESKTOP, in the summary.
+fn title(key: &str) -> &'static str {
+    Log::ALL.into_iter().find(|log| log.key() == key).map_or("Desktop app", Log::title)
+}
+
 /// The counts in the summary: the log, the measure, and its label.
-const SUMMARY: [(Log, &str, &str); 9] = [
-    (Log::Site, "visits", "Visits"),
-    (Log::Site, "views", "Page views"),
-    (Log::Site, "phones", "Visits on phones and tablets"),
-    (Log::Demo, "visits", "Visits"),
-    (Log::Demo, "signins", "Sign-ins"),
-    (Log::Demo, "inside", "Visits that looked inside"),
-    (Log::App, "visits", "Visits"),
-    (Log::App, "signup_views", "Sign-up page views"),
-    (Log::App, "signins", "Sign-ins"),
+const SUMMARY: [(&str, &str, &str); 12] = [
+    ("site", "visits", "Visits"),
+    ("site", "views", "Page views"),
+    ("site", "phones", "Visits on phones and tablets"),
+    ("demo", "visits", "Visits"),
+    ("demo", "signins", "Sign-ins"),
+    ("demo", "inside", "Visits that looked inside"),
+    ("app", "visits", "Visits"),
+    ("app", "signup_views", "Sign-up page views"),
+    ("app", "signins", "Sign-ins"),
+    (DESKTOP, "opens", "Opens"),
+    (DESKTOP, "computers", "Computers that opened it"),
+    (DESKTOP, "new", "New computers"),
 ];
 
 /// The columns of the table by day: the log, the measure, and its heading.
-pub const DAY_COLUMNS: [(Log, &str, &str); 6] = [
-    (Log::Site, "visits", "Website visits"),
-    (Log::Site, "views", "Website page views"),
-    (Log::Demo, "visits", "Demo visits"),
-    (Log::Demo, "signins", "Demo sign-ins"),
-    (Log::App, "visits", "App visits"),
-    (Log::App, "signup_views", "Sign-up page views"),
+pub const DAY_COLUMNS: [(&str, &str, &str); 7] = [
+    ("site", "visits", "Website visits"),
+    ("site", "views", "Website page views"),
+    ("demo", "visits", "Demo visits"),
+    ("demo", "signins", "Demo sign-ins"),
+    ("app", "visits", "App visits"),
+    ("app", "signup_views", "Sign-up page views"),
+    (DESKTOP, "opens", "Desktop app opens"),
 ];
 
 /// Everything the operator sees.
@@ -622,6 +688,9 @@ pub struct Report {
     pub sources: Vec<SourceList>,
     pub pages: Vec<(String, i64)>,
     pub downloads: Vec<Download>,
+    /// The desktop app in the last 30 days: computers by kind and by version.
+    pub kinds: Vec<(String, i64)>,
+    pub versions: Vec<(String, i64)>,
     pub accounts: Accounts,
     pub checks: Vec<Check>,
 }
@@ -690,9 +759,9 @@ pub async fn report(control: &SqlitePool) -> anyhow::Result<Report> {
         .iter()
         .enumerate()
         .map(|(i, (log, measure, label))| {
-            let t = totals.iter().find(|t| t.0 == log.key() && t.1 == *measure);
+            let t = totals.iter().find(|t| t.0 == *log && t.1 == *measure);
             SummaryRow {
-                log: log.title(),
+                log: title(log),
                 first: i == 0 || SUMMARY[i - 1].0 != *log,
                 label,
                 today: t.map_or(0, |t| t.2),
@@ -721,7 +790,7 @@ pub async fn report(control: &SqlitePool) -> anyhow::Result<Report> {
             let counts = DAY_COLUMNS
                 .iter()
                 .map(|(log, measure, _)| {
-                    daily.iter().find(|d| d.0 == day && d.1 == log.key() && d.2 == *measure).map_or(0, |d| d.3)
+                    daily.iter().find(|d| d.0 == day && d.1 == *log && d.2 == *measure).map_or(0, |d| d.3)
                 })
                 .collect();
             days.push(DayRow { day, counts });
@@ -750,6 +819,12 @@ pub async fn report(control: &SqlitePool) -> anyhow::Result<Report> {
         }
     }
     let pages = top("demo", "page").await?;
+    let kinds = top(DESKTOP, "kind")
+        .await?
+        .into_iter()
+        .map(|(key, n)| (KINDS.iter().find(|k| k.0 == key).map_or("Other", |k| k.1).to_string(), n))
+        .collect();
+    let versions = top(DESKTOP, "version").await?;
 
     let mut downloads = Vec::new();
     for (key, platform) in PLATFORMS {
@@ -807,7 +882,7 @@ pub async fn report(control: &SqlitePool) -> anyhow::Result<Report> {
         .collect();
     checks.sort_by_key(|c| c.source);
 
-    Ok(Report { rows, days, sources, pages, downloads, accounts, checks })
+    Ok(Report { rows, days, sources, pages, downloads, kinds, versions, accounts, checks })
 }
 
 impl Report {
@@ -815,11 +890,14 @@ impl Report {
     pub fn text(&self) -> anyhow::Result<String> {
         let mut out = String::new();
         writeln!(out, "Visits. A visit is one visitor (an address and a browser) on one day, in UTC.")?;
-        writeln!(out, "Bots and the operator are left out.\n")?;
-        writeln!(out, "{:<9}{:<30}{:>8}{:>8}{:>8}{:>8}", "", "", "Today", "7 days", "30 days", "All")?;
+        writeln!(
+            out,
+            "Bots and the operator are left out. A computer that opens the desktop app counts once a day.\n"
+        )?;
+        writeln!(out, "{:<13}{:<30}{:>8}{:>8}{:>8}{:>8}", "", "", "Today", "7 days", "30 days", "All")?;
         for r in &self.rows {
             let log = if r.first { r.log } else { "" };
-            writeln!(out, "{log:<9}{:<30}{:>8}{:>8}{:>8}{:>8}", r.label, r.today, r.week, r.month, r.all)?;
+            writeln!(out, "{log:<13}{:<30}{:>8}{:>8}{:>8}{:>8}", r.label, r.today, r.week, r.month, r.all)?;
         }
         let list = |items: &[(String, i64)]| {
             items.iter().map(|(name, n)| format!("{name} {n}")).collect::<Vec<_>>().join(", ")
@@ -843,6 +921,14 @@ impl Report {
                 })
                 .collect();
             writeln!(out, "\nDownloads: {}", downloads.join(", "))?;
+        }
+        if !self.kinds.is_empty() {
+            writeln!(
+                out,
+                "\nDesktop app computers, last 30 days: {}. Versions: {}",
+                list(&self.kinds),
+                list(&self.versions)
+            )?;
         }
         let a = &self.accounts;
         writeln!(
@@ -1033,6 +1119,44 @@ mod tests {
         assert_eq!(report.rows[0].all, 3, "website visits, all days");
         assert!(report.text().unwrap().contains("Website"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn counts_desktop_opens() {
+        let pool = control().await;
+        let open = |version, kind, first_today, new| Open { version, kind, first_today, new };
+        for o in [
+            open("0.5.2", "mac", true, true),
+            open("0.5.2", "mac", false, false),
+            open("0.5.1", "windows", true, false),
+            // Anyone can send an open: free text does not get saved.
+            open("<script>", "linux; DROP", true, false),
+        ] {
+            record_open(&pool, &o).await.unwrap();
+        }
+        let today = Utc::now().date_naive().to_string();
+        let expect = [
+            ("opens", 4),
+            ("computers", 3),
+            ("new", 1),
+            ("kind:mac", 1),
+            ("kind:windows", 1),
+            ("kind:other", 1),
+            ("version:0.5.2", 1),
+            ("version:0.5.1", 1),
+            ("version:other", 1),
+        ];
+        assert_eq!(counts(&pool, &today, DESKTOP).await, expect.iter().map(|(k, n)| (k.to_string(), *n)).collect());
+
+        let report = report(&pool).await.unwrap();
+        let desktop: Vec<_> =
+            report.rows.iter().filter(|r| r.log == "Desktop app").map(|r| (r.label, r.today, r.all)).collect();
+        assert_eq!(desktop, [("Opens", 4, 4), ("Computers that opened it", 3, 3), ("New computers", 1, 1)]);
+        assert_eq!(report.days[0].counts.last(), Some(&4), "opens today in the table by day");
+        assert!(report.kinds.contains(&("Mac".to_string(), 1)) && report.kinds.contains(&("Other".to_string(), 1)));
+        assert!(report.versions.contains(&("0.5.2".to_string(), 1)));
+        assert!(report.text().unwrap().contains("Desktop app"));
+        assert!(valid_version("0.5.2") && valid_version("1.0") && !valid_version("1") && !valid_version("1.x.0"));
     }
 
     #[test]

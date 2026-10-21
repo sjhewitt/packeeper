@@ -70,7 +70,7 @@ impl<S: Send + Sync> FromRequestParts<S> for SignedIn {
 }
 
 fn is_public(path: &str) -> bool {
-    matches!(path, "/login" | "/signup" | "/forgot" | "/verify/resend" | "/stripe/webhook")
+    matches!(path, "/login" | "/signup" | "/forgot" | "/verify/resend" | "/stripe/webhook" | "/desktop/opened")
         || ["/verify/", "/reset/", "/invite/", "/static/", "/join/"].iter().any(|p| path.starts_with(p))
 }
 
@@ -1233,6 +1233,27 @@ pub async fn stats_check(State(app): State<AppState>, SignedIn(person): SignedIn
     Ok(super::redirect_ok("/operator/stats", "Read the logs again."))
 }
 
+#[derive(Deserialize)]
+pub struct OpenedForm {
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    first_today: bool,
+    #[serde(default)]
+    new: bool,
+}
+
+/// The desktop app reports that it opened. There is no sign-in: the app sends
+/// nothing that names a person or a computer, and the server saves counts only.
+pub async fn desktop_opened(State(app): State<AppState>, Form(f): Form<OpenedForm>) -> AppResult<Response> {
+    let hosted = hosted_or_404(&app)?;
+    let open = stats::Open { version: &f.version, kind: &f.kind, first_today: f.first_today, new: f.new };
+    stats::record_open(&hosted.control, &open).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT.into_response())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1388,11 +1409,18 @@ mod tests {
             cookies.push(cookie.expect("a session cookie").split(';').next().unwrap().to_string());
         }
 
+        // The desktop app reports an open without a sign-in.
+        let form = "version=0.5.2&kind=mac&first_today=true&new=true".to_string();
+        let res = send("POST", "/desktop/opened", "", form).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
         let res = send("GET", "/operator/stats", &cookies[0], String::new()).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let body = String::from_utf8_lossy(&body);
         assert!(body.contains("No logs are set") && body.contains("People with an account"), "{body}");
+        assert!(body.contains("Desktop app") && body.contains("Computers that opened it"), "{body}");
+        assert!(body.contains("<td>0.5.2</td>"), "{body}");
         let res = send("GET", "/operator/stats", &cookies[1], String::new()).await.unwrap();
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         let res = send("POST", "/operator/stats/check", &cookies[1], String::new()).await.unwrap();

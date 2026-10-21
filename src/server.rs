@@ -278,6 +278,25 @@ impl Updates {
     }
 }
 
+/// Whether the desktop app tells PAC Keeper's server each time it opens. The
+/// app changes it; Settings shows it.
+#[derive(Debug, Default)]
+pub struct CountOpens(std::sync::atomic::AtomicBool);
+
+impl CountOpens {
+    pub fn new(on: bool) -> CountOpens {
+        CountOpens(std::sync::atomic::AtomicBool::new(on))
+    }
+
+    pub fn get(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set(&self, on: bool) {
+        self.0.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// The addresses in the app that answer with a file, not a page.
 pub fn is_file_path(path: &str) -> bool {
     (path.starts_with("/reports/") && path.ends_with(".pdf"))
@@ -294,7 +313,11 @@ fn disposition_filename(disposition: &str) -> String {
     if clean.is_empty() { "file".to_string() } else { clean.to_string() }
 }
 
-pub async fn start_desktop(data_dir: &Path, updates: Arc<Updates>) -> anyhow::Result<DesktopServer> {
+pub async fn start_desktop(
+    data_dir: &Path,
+    updates: Arc<Updates>,
+    count_opens: Arc<CountOpens>,
+) -> anyhow::Result<DesktopServer> {
     let pool = open_single(data_dir).await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.context("listen on this computer")?;
     let addr = listener.local_addr()?;
@@ -302,7 +325,7 @@ pub async fn start_desktop(data_dir: &Path, updates: Arc<Updates>) -> anyhow::Re
     rand::Rng::fill_bytes(&mut rand::rng(), &mut bytes);
     let secret = hex::encode(bytes);
     let mut state = single_state(pool, data_dir, addr, false)?;
-    state.desktop = Some(web::Desktop { secret: secret.clone(), updates });
+    state.desktop = Some(web::Desktop { secret: secret.clone(), updates, count_opens });
     let router = web::router(state);
     let serving = router.clone();
     tokio::spawn(async move {
@@ -357,10 +380,10 @@ mod tests {
     use super::*;
 
     async fn desktop() -> (DesktopServer, PathBuf) {
-        desktop_with(Arc::new(Updates::new(true))).await
+        desktop_with(Arc::new(Updates::new(true)), Arc::new(CountOpens::new(true))).await
     }
 
-    async fn desktop_with(updates: Arc<Updates>) -> (DesktopServer, PathBuf) {
+    async fn desktop_with(updates: Arc<Updates>, count_opens: Arc<CountOpens>) -> (DesktopServer, PathBuf) {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pac-desktop-test-{}-{}",
@@ -370,7 +393,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let pool = open_single(&dir).await.unwrap();
         demo::load_shifted(&pool, &dir, 0).await.unwrap();
-        (start_desktop(&dir, updates).await.unwrap(), dir)
+        (start_desktop(&dir, updates, count_opens).await.unwrap(), dir)
     }
 
     async fn send(d: &DesktopServer, req: Request<Body>) -> axum::response::Response {
@@ -432,7 +455,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn settings_show_the_app_updates() {
+    async fn settings_show_the_app_updates_and_open_counts() {
         async fn settings(d: &DesktopServer) -> String {
             let cookie = format!("{}={}", web::DESKTOP_COOKIE, d.secret);
             let res = send(d, get(d, "/settings").header(header::COOKIE, cookie).body(Body::empty()).unwrap()).await;
@@ -440,18 +463,22 @@ mod tests {
             String::from_utf8(axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap()
         }
         let updates = Arc::new(Updates::new(true));
-        let (d, dir) = desktop_with(updates.clone()).await;
+        let count_opens = Arc::new(CountOpens::new(true));
+        let (d, dir) = desktop_with(updates.clone(), count_opens.clone()).await;
 
         let page = settings(&d).await;
         assert!(page.contains("Automatic updates are on.") && page.contains("/__desktop/updates/off"));
         assert!(!page.contains("is ready"), "no new version yet");
+        assert!(page.contains("/__desktop/opens/off") && !page.contains("/__desktop/opens/on"));
 
         updates.change(|u| {
             u.automatic = false;
             u.ready = Some("9.9.9".into());
         });
+        count_opens.set(false);
         let page = settings(&d).await;
         assert!(page.contains("Automatic updates are off.") && page.contains("/__desktop/updates/on"));
+        assert!(page.contains("/__desktop/opens/on") && !page.contains("/__desktop/opens/off"));
         assert!(page.contains("PAC Keeper 9.9.9 is ready.") && page.contains("/__desktop/updates/restart"));
         assert!(page.contains("update-banner"), "every page shows the new version");
         let _ = std::fs::remove_dir_all(dir);

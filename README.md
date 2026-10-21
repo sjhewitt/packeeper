@@ -57,6 +57,8 @@ The records are not in Documents, because iCloud and OneDrive often sync Documen
 
 The app updates itself. It looks for a new version when it starts and once a day, downloads it from the GitHub releases, and checks its signature. The new version installs when you close PAC Keeper. **Settings → Updates** checks at once, installs a downloaded version now, and turns automatic updates off. An update keeps your records. PAC Keeper 0.4.0 and older do not update themselves: install the next version by hand once.
 
+When the app opens, it tells app.packeeper.ca, so the project can see how many people use it. It sends the version, Mac or Windows, and whether this is the first open today or the first open on this computer. It never sends the records, the PAC's name, or a name or number for the computer. **Settings → Open counts** turns this off.
+
 The app is the same program as the server below, in a native window. Only the app window can open the records: the server listens on this computer only and needs a secret that changes on every start. PDFs and receipts open in the computer's viewer. Other attached files are saved in Downloads and never opened, so a file cannot run by a click.
 
 ## Start
@@ -214,7 +216,7 @@ The `backup`, `operator`, and `stats` commands need `PAC_DATA_KEY` too. Backups 
 
 ### Visit counts
 
-The operator page links to **Visits** (`/operator/stats`), which only operators can open. It shows visits to the website, the demo, and the app, sign-ups and sign-ins, where visitors came from, the demo pages they opened, downloads of the desktop apps, and the number of accounts and PACs.
+The operator page links to **Visits** (`/operator/stats`), which only operators can open. It shows visits to the website, the demo, and the app, sign-ups and sign-ins, where visitors came from, the demo pages they opened, downloads and opens of the desktop apps, and the number of accounts and PACs.
 
 The server reads the web server's access logs (nginx's "combined" format) every hour and saves a count for each day, so the counts stay after the logs rotate. Set the logs and the GitHub repository it reads:
 
@@ -228,6 +230,7 @@ PAC_STATS_GITHUB=sjhewitt/packeeper
 - **Counts only.** No address, browser, or app path is saved. A visit is one address with one browser on one day.
 - **Left out:** bots (browser names that are not a person's, requests that only attacks send, and three or more missing pages) and you: any browser that opened `/operator` on the app.
 - **Days are in UTC.** The first day in a log can be there only in part, so its counts never go down. Later days are read again in full every hour.
+- **Desktop app opens** come from the app itself, not from a log: each open posts to `/desktop/opened`. The app says if it is the first open on that computer today, so a computer counts once a day, with no number for the computer. A version or a kind of computer that is not a known form counts as "other".
 - **On the command line:** `pac-keeper --data-dir DIR stats` prints the same counts. Add `--now` to read the logs first (it needs the `PAC_STATS_*` settings).
 
 **Backups are your job as the operator.** `pac-keeper --data-dir DIR backup --to BACKUP_DIR` copies every database, receipt, and bank file into a dated folder. It is safe while the server runs. Run it every night (from cron or a systemd timer), copy the result off the server to encrypted storage, and test a restore. On Opalstack, the `backup` script does this; see [Backups to S3](#backups-to-s3). Before you take real PAC data, also:
@@ -566,7 +569,7 @@ npm run tauri build -- --bundles nsis              # Windows: the installer
 
 `PAC_DATA_DIR` makes the app use another folder, for example a copy of the example data.
 
-A build also makes the update files, so it needs the updater's private key. Set `TAURI_SIGNING_PRIVATE_KEY` to the key file (or its text) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to its password. Without the key, add `--config '{"bundle":{"createUpdaterArtifacts":false}}'` to the build command. A development build (`tauri dev`) looks for new versions when you click Check now, but never installs them.
+A build also makes the update files, so it needs the updater's private key. Set `TAURI_SIGNING_PRIVATE_KEY` to the key file (or its text) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to its password. Without the key, add `--config '{"bundle":{"createUpdaterArtifacts":false}}'` to the build command. A development build (`tauri dev`) looks for new versions when you click Check now, but never installs them. It also does not count its opens, unless `PAC_OPENS_URL` gives an address, such as `http://127.0.0.1:8080/desktop/opened` on a hosted test server.
 
 `.github/workflows/release.yml` ("Release builds") builds both apps, and the Linux server program, on GitHub Actions. Run it from the Actions tab to get the files as build artifacts. Push a tag such as `v0.2.0` to also make a draft release with the files attached. Check the draft, then publish it.
 

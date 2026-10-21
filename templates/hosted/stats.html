@@ -3,7 +3,7 @@
 {% block width %}wide{% endblock %}
 {% block content %}
 <div class="page-head" style="margin-bottom: 8px;">
-  <div><h1>Visits</h1><p class="sub">From the web server's logs. Bots and your own visits are left out. Days are in UTC.</p></div>
+  <div><h1>Visits</h1><p class="sub">From the web server's logs and the desktop app. Bots and your own visits are left out. Days are in UTC.</p></div>
   <div class="actions">
     <a class="small" href="/operator">Operator</a>
     {% if configured %}<form method="post" action="/operator/stats/check" class="inline"><button class="secondary small">Read the logs now</button></form>{% endif %}
@@ -32,7 +32,7 @@
   {% endfor %}
   </tbody>
 </table>
-<p class="small muted">A visit is one visitor (an address and a browser) on one day. Someone who comes back on three days makes three visits.</p>
+<p class="small muted">A visit is one visitor (an address and a browser) on one day. Someone who comes back on three days makes three visits. A computer that opens the desktop app counts once a day in the same way.</p>
 
 <div class="grid two">
   <div>
@@ -64,6 +64,29 @@
     {% endif %}
   </div>
 </div>
+
+{% if !report.kinds.is_empty() %}
+<h2>Desktop app (last 30 days)</h2>
+<div class="grid two">
+  <div>
+    <table>
+      <thead><tr><th>Kind of computer</th><th class="num">Computers</th></tr></thead>
+      <tbody>
+      {% for (name, n) in report.kinds %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <table>
+      <thead><tr><th>Version</th><th class="num">Computers</th></tr></thead>
+      <tbody>
+      {% for (name, n) in report.versions %}<tr><td>{{ name }}</td><td class="num">{{ n }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<p class="small muted">The app reports each open, unless the treasurer turns this off in Settings. A computer counts once a day. The app sends no name or number for the computer.</p>
+{% endif %}
 
 {% if !report.sources.is_empty() %}
 <h2>Where visits came from (last 30 days)</h2>

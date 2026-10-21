@@ -5,6 +5,7 @@
 // No console window on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod opens;
 mod updates;
 
 use std::path::{Path, PathBuf};
@@ -22,6 +23,9 @@ const DATA_FOLDER_PATH: &str = "/__desktop/data-folder";
 
 /// The addresses of the Updates buttons in Settings; see `updates::act`.
 const UPDATES_PATH: &str = "/__desktop/updates/";
+
+/// The addresses of the Open counts buttons in Settings; see `opens::act`.
+const OPENS_PATH: &str = "/__desktop/opens/";
 
 fn main() {
     tracing_subscriber::fmt()
@@ -50,8 +54,12 @@ fn main() {
             app.manage(app_updates);
             // Also when the records do not open: a new version may fix that.
             updates::start(&handle);
+            let app_opens = opens::AppOpens::load(&handle);
+            let count_opens = app_opens.shared.clone();
+            app.manage(app_opens);
+            opens::count(&handle);
             let opened = data_dir(&handle).and_then(|dir| {
-                tauri::async_runtime::block_on(server::start_desktop(&dir, shared))
+                tauri::async_runtime::block_on(server::start_desktop(&dir, shared, count_opens))
                     .map_err(|e| anyhow::anyhow!("PAC Keeper could not open its records in {}: {e:#}", dir.display()))
             });
             match opened {
@@ -138,6 +146,10 @@ fn route(app: &AppHandle, server: &Arc<DesktopServer>, let_through: &Arc<Mutex<O
     }
     if let Some(action) = path.strip_prefix(UPDATES_PATH) {
         updates::act(app, action);
+        return false;
+    }
+    if let Some(action) = path.strip_prefix(OPENS_PATH) {
+        opens::act(app, action);
         return false;
     }
     if path == DATA_FOLDER_PATH {
@@ -245,6 +257,16 @@ fn flash(app: &AppHandle, ok: bool, message: &str) {
         serde_json::to_string(message).unwrap_or_default()
     );
     let _ = window.eval(script);
+}
+
+/// Opens Settings with a message, as the server's own pages do after a change.
+fn show_settings(app: &AppHandle, ok: bool, message: &str) {
+    let Some(window) = app.get_webview_window(WINDOW) else { return };
+    let Ok(mut url) = window.url() else { return };
+    url.set_path("/settings");
+    url.set_fragment(None);
+    url.query_pairs_mut().clear().append_pair(if ok { "msg" } else { "err" }, message);
+    let _ = window.navigate(url);
 }
 
 /// When the records cannot open, the window shows why, from the app's own page.

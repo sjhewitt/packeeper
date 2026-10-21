@@ -15,7 +15,7 @@ use pac_keeper::server::Updates;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::{WINDOW, flash};
+use crate::{WINDOW, flash, show_settings};
 
 /// The first check waits a little, so the app opens quickly.
 const FIRST_CHECK: Duration = Duration::from_secs(10);
@@ -228,14 +228,4 @@ fn tell(app: &AppHandle, ok: bool, message: &str) {
     } else {
         flash(app, ok, message);
     }
-}
-
-/// Opens Settings with a message, as the server's own pages do after a change.
-fn show_settings(app: &AppHandle, ok: bool, message: &str) {
-    let Some(window) = app.get_webview_window(WINDOW) else { return };
-    let Ok(mut url) = window.url() else { return };
-    url.set_path("/settings");
-    url.set_fragment(None);
-    url.query_pairs_mut().clear().append_pair(if ok { "msg" } else { "err" }, message);
-    let _ = window.navigate(url);
 }

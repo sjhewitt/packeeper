@@ -55,8 +55,8 @@ pub struct AppState {
     /// The server listens on this computer only. It then answers only requests
     /// addressed to this computer, so a website cannot reach it by DNS rebinding.
     pub loopback_only: bool,
-    /// In the desktop app: the secret that the app window holds, and the
-    /// app's updates.
+    /// In the desktop app: the secret that the app window holds, the app's
+    /// updates, and whether it counts its opens.
     pub desktop: Option<Desktop>,
     /// Hot lunch ordering, when the hosted server runs with --hot-lunch.
     pub lunch: Option<Arc<crate::lunch::Lunch>>,
@@ -76,6 +76,8 @@ pub struct Desktop {
     pub secret: String,
     /// New versions of the app. Settings and the notice on each page show them.
     pub updates: Arc<crate::server::Updates>,
+    /// The app tells PAC Keeper's server when it opens. Settings shows it.
+    pub count_opens: Arc<crate::server::CountOpens>,
 }
 
 impl FromRef<AppState> for Key {
@@ -102,6 +104,8 @@ pub struct Ctx {
     pub desktop: bool,
     /// Inside the desktop app: its new versions.
     pub updates: Option<Arc<crate::server::Updates>>,
+    /// Inside the desktop app: it tells PAC Keeper's server when it opens.
+    pub count_opens: Option<Arc<crate::server::CountOpens>>,
     pub hosted: Option<HostedCtx>,
     /// Hot lunch, on a hosted server with --hot-lunch. Each PAC also turns it on.
     pub lunch: Option<Arc<crate::lunch::Lunch>>,
@@ -134,6 +138,7 @@ impl Ctx {
             demo: app.demo,
             desktop: app.desktop.is_some(),
             updates: app.desktop.as_ref().map(|d| d.updates.clone()),
+            count_opens: app.desktop.as_ref().map(|d| d.count_opens.clone()),
             lunch: app.lunch.clone().filter(|_| hosted.is_some()),
             hosted,
         }
@@ -269,6 +274,7 @@ pub fn router(state: AppState) -> Router {
         .route("/operator/pacs/{id}/{action}", post(hosted::operator_action))
         .route("/operator/stats", get(hosted::stats_page))
         .route("/operator/stats/check", post(hosted::stats_check))
+        .route("/desktop/opened", post(hosted::desktop_opened))
         .route("/static/app.css", get(|| async { static_file("text/css", include_str!("../../static/app.css")) }))
         .route("/static/app.js", get(|| async { static_file("text/javascript", include_str!("../../static/app.js")) }))
         .route(

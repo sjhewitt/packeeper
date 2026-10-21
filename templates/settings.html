@@ -108,6 +108,18 @@
       <p class="small muted">This is version {{ layout.app_version() }}. New versions come from PAC Keeper's releases page on GitHub, and the app checks their signature before it installs them.</p>
     </div>
     {% endif %}
+    {% if let Some(on) = count_opens %}
+    <div class="panel">
+      <h2>Open counts</h2>
+      {% if on %}
+      <p class="small">When PAC Keeper opens, it tells app.packeeper.ca. This shows how many people use the app. It sends the version, Mac or Windows, and whether this is the first open today or the first open on this computer. It never sends your records, your PAC's name, or a name or number for this computer.</p>
+      <p><a class="button secondary" href="/__desktop/opens/off">Stop counting opens</a></p>
+      {% else %}
+      <p class="small">Open counts are off. PAC Keeper does not tell app.packeeper.ca when it opens.</p>
+      <p><a class="button secondary" href="/__desktop/opens/on">Count opens again</a></p>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

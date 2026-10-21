@@ -89,6 +89,8 @@ jobs:
 
             An installed app updates itself: it downloads each new version and installs it when you close it. Settings → Updates turns this off. The `latest.json`, `.app.tar.gz`, and `.sig` files are for these updates. You do not need to download them.
 
+            When it opens, the app tells app.packeeper.ca, so we can see how many people use it. It sends the version and Mac or Windows, never your records or your PAC's name. Settings → Open counts turns this off.
+
             To run your own server: `pac-keeper-linux-x86_64.tar.gz` holds the program for any 64-bit Linux server, and start and stop scripts for Opalstack. See the README.
 
       - uses: actions/upload-artifact@v4
